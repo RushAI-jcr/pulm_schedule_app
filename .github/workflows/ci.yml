@@ -35,5 +35,8 @@ jobs:
       - name: Verify Auth Guards
         run: npm run test:authz
 
+      - name: Run Unit Tests
+        run: npm test
+
       - name: Build Frontend
         run: npm run build

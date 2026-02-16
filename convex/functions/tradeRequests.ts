@@ -2,6 +2,14 @@ import { mutation, query, MutationCtx, QueryCtx } from "../_generated/server";
 import { v } from "convex/values";
 import { Doc } from "../_generated/dataModel";
 import { getCurrentPhysician, requireAdmin } from "../lib/auth";
+import {
+  canAdminApproveTrade,
+  canAdminDenyTrade,
+  canProposeTradeAssignments,
+  canProposeTradeForFiscalYear,
+  canRequesterCancelTrade,
+  canTargetRespondToTrade,
+} from "../lib/workflowPolicy";
 
 type AnyCtx = QueryCtx | MutationCtx;
 
@@ -268,7 +276,7 @@ export const proposeTrade = mutation({
     const physician = await getCurrentPhysician(ctx);
 
     const fiscalYear = await getActiveTradeFiscalYear(ctx);
-    if (!fiscalYear || fiscalYear.status !== "published") {
+    if (!fiscalYear || !canProposeTradeForFiscalYear(fiscalYear.status)) {
       throw new Error("Trades are available only for published schedules");
     }
 
@@ -289,11 +297,17 @@ export const proposeTrade = mutation({
       throw new Error("Assignments must belong to published master calendar");
     }
 
-    if (requesterAssignment.physicianId !== physician._id) {
-      throw new Error("You can only trade assignments currently assigned to you");
-    }
-
-    if (!targetAssignment.physicianId || targetAssignment.physicianId === physician._id) {
+    if (
+      !canProposeTradeAssignments({
+        actorPhysicianId: String(physician._id),
+        requesterAssignmentPhysicianId: requesterAssignment.physicianId
+          ? String(requesterAssignment.physicianId)
+          : null,
+        targetAssignmentPhysicianId: targetAssignment.physicianId
+          ? String(targetAssignment.physicianId)
+          : null,
+      })
+    ) {
       throw new Error("Choose an assignment from another physician");
     }
 
@@ -315,11 +329,16 @@ export const proposeTrade = mutation({
       throw new Error("A matching open trade request already exists");
     }
 
+    const targetPhysicianId = targetAssignment.physicianId;
+    if (!targetPhysicianId) {
+      throw new Error("Target assignment must be owned by another physician");
+    }
+
     await ctx.db.insert("tradeRequests", {
       fiscalYearId: fiscalYear._id,
       masterCalendarId: calendar._id,
       requestingPhysicianId: physician._id,
-      targetPhysicianId: targetAssignment.physicianId,
+      targetPhysicianId,
       requesterWeekId: requesterAssignment.weekId,
       requesterRotationId: requesterAssignment.rotationId,
       targetWeekId: targetAssignment.weekId,
@@ -343,11 +362,14 @@ export const respondToTrade = mutation({
     const trade = await ctx.db.get(args.tradeRequestId);
 
     if (!trade) throw new Error("Trade request not found");
-    if (trade.targetPhysicianId !== physician._id) {
+    if (
+      !canTargetRespondToTrade({
+        actorPhysicianId: String(physician._id),
+        targetPhysicianId: String(trade.targetPhysicianId),
+        status: trade.status,
+      })
+    ) {
       throw new Error("Only the target physician can respond to this trade");
-    }
-    if (trade.status !== "proposed") {
-      throw new Error("This trade request is not awaiting peer response");
     }
 
     await ctx.db.patch(trade._id, {
@@ -368,12 +390,14 @@ export const cancelTrade = mutation({
     const trade = await ctx.db.get(args.tradeRequestId);
 
     if (!trade) throw new Error("Trade request not found");
-    if (trade.requestingPhysicianId !== physician._id) {
+    if (
+      !canRequesterCancelTrade({
+        actorPhysicianId: String(physician._id),
+        requestingPhysicianId: String(trade.requestingPhysicianId),
+        status: trade.status,
+      })
+    ) {
       throw new Error("Only the requester can cancel this trade");
-    }
-
-    if (trade.status !== "proposed" && trade.status !== "peer_accepted") {
-      throw new Error("Only proposed or peer accepted trades can be cancelled");
     }
 
     await ctx.db.patch(trade._id, {
@@ -396,7 +420,7 @@ export const adminResolveTrade = mutation({
     const trade = await ctx.db.get(args.tradeRequestId);
 
     if (!trade) throw new Error("Trade request not found");
-    if (trade.status !== "peer_accepted" && trade.status !== "proposed") {
+    if (!canAdminDenyTrade(trade.status)) {
       throw new Error("Trade is not in an admin-resolvable state");
     }
 
@@ -409,7 +433,7 @@ export const adminResolveTrade = mutation({
       return { message: "Trade denied" };
     }
 
-    if (trade.status !== "peer_accepted") {
+    if (!canAdminApproveTrade(trade.status)) {
       throw new Error("Trade must be accepted by target physician before admin approval");
     }
 

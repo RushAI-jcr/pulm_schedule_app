@@ -2,6 +2,11 @@ import { mutation, query, QueryCtx, MutationCtx } from "../_generated/server";
 import { Doc, Id } from "../_generated/dataModel";
 import { v } from "convex/values";
 import { getCurrentPhysician, requireAdmin } from "../lib/auth";
+import {
+  canEditRequestForFiscalYear,
+  FiscalYearStatus,
+  nextScheduleRequestStatusAfterSave,
+} from "../lib/workflowPolicy";
 
 const availabilityValidator = v.union(
   v.literal("green"),
@@ -63,8 +68,8 @@ async function getOrCreateRequest(
   return created;
 }
 
-function requireCollectingWindow(fiscalYearStatus: string) {
-  if (fiscalYearStatus !== "collecting") {
+function requireCollectingWindow(fiscalYearStatus: FiscalYearStatus) {
+  if (!canEditRequestForFiscalYear(fiscalYearStatus)) {
     throw new Error("Scheduling requests are only editable while fiscal year is collecting");
   }
 }
@@ -152,7 +157,7 @@ export const saveMyScheduleRequest = mutation({
     const request = await getOrCreateRequest(ctx, physician._id, fiscalYear._id);
     if (!request) throw new Error("Failed to load request");
 
-    const nextStatus = request.status === "submitted" ? "revised" : request.status;
+    const nextStatus = nextScheduleRequestStatusAfterSave(request.status);
 
     await ctx.db.patch(request._id, {
       specialRequests: args.specialRequests,
