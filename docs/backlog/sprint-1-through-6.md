@@ -2,6 +2,20 @@
 
 This is a concise story inventory for planning. Detailed acceptance criteria should be expanded in each sprint planning session.
 
+## Delivered baseline (as of 2026-02-16)
+
+- Core annual request workflow is implemented:
+  - save request notes
+  - set week preference
+  - submit request
+  - admin request review queue
+- Core trade workflow is implemented:
+  - propose trade
+  - peer accept/decline
+  - requester cancel
+  - admin approve/deny
+- Next focus is hardening with automated lifecycle/authorization tests and release readiness.
+
 ## Sprint 1
 
 - `S1-001` Authorization matrix by role and resource

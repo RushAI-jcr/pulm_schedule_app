@@ -20,4 +20,12 @@ check convex/functions/physicians.ts "linkCurrentUserToPhysicianByEmail" "link m
 check convex/functions/fiscalYears.ts "await getCurrentPhysician\(ctx\)" "fiscal year query guard"
 check convex/functions/fiscalYears.ts "await requireAdmin\(ctx\)" "fiscal year admin guard"
 
+# Schedule request functions
+check convex/functions/scheduleRequests.ts "await getCurrentPhysician\(ctx\)" "schedule request user guard"
+check convex/functions/scheduleRequests.ts "await requireAdmin\(ctx\)" "schedule request admin guard"
+
+# Trade request functions
+check convex/functions/tradeRequests.ts "await getCurrentPhysician\(ctx\)" "trade request user guard"
+check convex/functions/tradeRequests.ts "await requireAdmin\(ctx\)" "trade request admin guard"
+
 echo "Auth guard checks passed"

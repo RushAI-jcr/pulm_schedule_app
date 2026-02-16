@@ -20,6 +20,10 @@ export const getCurrentFiscalYear = query({
       .first() ||
       await ctx.db
         .query("fiscalYears")
+        .withIndex("by_status", (q) => q.eq("status", "setup"))
+        .first() ||
+      await ctx.db
+        .query("fiscalYears")
         .withIndex("by_status", (q) => q.eq("status", "building"))
         .first() ||
       await ctx.db
