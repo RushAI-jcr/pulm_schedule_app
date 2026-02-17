@@ -27,6 +27,7 @@ import type * as lib_cfteTargets from "../lib/cfteTargets.js";
 import type * as lib_clinicTypes from "../lib/clinicTypes.js";
 import type * as lib_masterCalendar from "../lib/masterCalendar.js";
 import type * as lib_physicianClinics from "../lib/physicianClinics.js";
+import type * as lib_rateLimit from "../lib/rateLimit.js";
 import type * as lib_workflowPolicy from "../lib/workflowPolicy.js";
 import type * as router from "../router.js";
 
@@ -56,6 +57,7 @@ declare const fullApi: ApiFromModules<{
   "lib/clinicTypes": typeof lib_clinicTypes;
   "lib/masterCalendar": typeof lib_masterCalendar;
   "lib/physicianClinics": typeof lib_physicianClinics;
+  "lib/rateLimit": typeof lib_rateLimit;
   "lib/workflowPolicy": typeof lib_workflowPolicy;
   router: typeof router;
 }>;

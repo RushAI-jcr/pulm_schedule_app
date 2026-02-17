@@ -7,6 +7,7 @@ import {
   FiscalYearStatus,
   nextScheduleRequestStatusAfterSave,
 } from "../lib/workflowPolicy";
+import { enforceRateLimit } from "../lib/rateLimit";
 
 const availabilityValidator = v.union(
   v.literal("green"),
@@ -156,6 +157,7 @@ export const saveMyScheduleRequest = mutation({
 
     const request = await getOrCreateRequest(ctx, physician._id, fiscalYear._id);
     if (!request) throw new Error("Failed to load request");
+    await enforceRateLimit(ctx, physician._id, "schedule_request_save");
 
     const nextStatus = nextScheduleRequestStatusAfterSave(request.status);
 
@@ -188,6 +190,7 @@ export const setMyWeekPreference = mutation({
 
     const request = await getOrCreateRequest(ctx, physician._id, fiscalYear._id);
     if (!request) throw new Error("Failed to load request");
+    await enforceRateLimit(ctx, physician._id, "schedule_week_preference_set");
 
     const existingPreferences = await ctx.db
       .query("weekPreferences")
@@ -228,6 +231,7 @@ export const submitMyScheduleRequest = mutation({
 
     const request = await getOrCreateRequest(ctx, physician._id, fiscalYear._id);
     if (!request) throw new Error("Failed to load request");
+    await enforceRateLimit(ctx, physician._id, "schedule_request_submit");
 
     await ctx.db.patch(request._id, {
       status: "submitted",

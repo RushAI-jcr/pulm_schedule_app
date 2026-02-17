@@ -247,6 +247,17 @@ const applicationTables = {
   })
     .index("by_fiscalYear", ["fiscalYearId"])
     .index("by_user", ["userId"]),
+
+  // ========================================
+  // RATE LIMITING (sensitive mutation controls)
+  // ========================================
+  rateLimitEvents: defineTable({
+    actorPhysicianId: v.id("physicians"),
+    action: v.string(),
+    timestamp: v.number(),
+  })
+    .index("by_actor_action", ["actorPhysicianId", "action"])
+    .index("by_timestamp", ["timestamp"]),
 };
 
 export default defineSchema({

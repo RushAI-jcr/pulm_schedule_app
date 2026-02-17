@@ -10,6 +10,7 @@ import {
   canRequesterCancelTrade,
   canTargetRespondToTrade,
 } from "../lib/workflowPolicy";
+import { enforceRateLimit } from "../lib/rateLimit";
 
 type AnyCtx = QueryCtx | MutationCtx;
 
@@ -344,6 +345,7 @@ export const proposeTrade = mutation({
     if (!targetPhysicianId) {
       throw new Error("Target assignment must be owned by another physician");
     }
+    await enforceRateLimit(ctx, physician._id, "trade_propose");
 
     await ctx.db.insert("tradeRequests", {
       fiscalYearId: fiscalYear._id,
@@ -383,6 +385,7 @@ export const respondToTrade = mutation({
     ) {
       throw new Error("Only the target physician can respond to this trade");
     }
+    await enforceRateLimit(ctx, physician._id, "trade_respond");
 
     await ctx.db.patch(trade._id, {
       status: args.decision === "accept" ? "peer_accepted" : "peer_declined",
@@ -412,6 +415,7 @@ export const cancelTrade = mutation({
     ) {
       throw new Error("Only the requester can cancel this trade");
     }
+    await enforceRateLimit(ctx, physician._id, "trade_cancel");
 
     await ctx.db.patch(trade._id, {
       status: "cancelled",
@@ -437,6 +441,7 @@ export const adminResolveTrade = mutation({
     if (!canAdminDenyTrade(trade.status)) {
       throw new Error("Trade is not in an admin-resolvable state");
     }
+    await enforceRateLimit(ctx, admin._id, "trade_admin_resolve");
 
     if (!args.approve) {
       await ctx.db.patch(trade._id, {
