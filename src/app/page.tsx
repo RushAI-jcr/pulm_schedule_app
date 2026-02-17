@@ -1,12 +1,12 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { withAuth } from "@workos-inc/authkit-nextjs";
-import { ThemeToggle } from "@/components/theme/ThemeToggle";
+import { ThemeToggle } from "@/shared/components/theme/ThemeToggle";
 
 export default async function HomePage() {
   const { user } = await withAuth();
   if (user) {
-    redirect("/dashboard");
+    redirect("/calendar");
   }
 
   return (

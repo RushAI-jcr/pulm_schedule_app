@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { Authenticated, Unauthenticated, useMutation, useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
-import { SignInForm } from "@/components/auth/SignInForm";
-import { SignOutButton } from "@/components/auth/SignOutButton";
-import { ThemeToggle } from "@/components/theme/ThemeToggle";
+import { SignInForm } from "@/features/auth/components/SignInForm";
+import { SignOutButton } from "@/features/auth/components/SignOutButton";
+import { ThemeToggle } from "@/shared/components/theme/ThemeToggle";
 import { toast, Toaster } from "sonner";
 import { useEffect, useMemo, useState } from "react";
 

@@ -76,7 +76,23 @@ async function seedInstitutionalConferencePlaceholders(params: {
 
 export const getFiscalYears = query({
   args: {},
-  returns: v.any(),
+  returns: v.array(
+    v.object({
+      _id: v.id("fiscalYears"),
+      _creationTime: v.number(),
+      label: v.string(),
+      startDate: v.string(),
+      endDate: v.string(),
+      status: v.union(
+        v.literal("setup"),
+        v.literal("collecting"),
+        v.literal("building"),
+        v.literal("published"),
+        v.literal("archived"),
+      ),
+      requestDeadline: v.optional(v.string()),
+    }),
+  ),
   handler: async (ctx) => {
     await requireAuthenticatedUser(ctx);
     return await ctx.db.query("fiscalYears").collect();
@@ -85,7 +101,24 @@ export const getFiscalYears = query({
 
 export const getCurrentFiscalYear = query({
   args: {},
-  returns: v.any(),
+  returns: v.union(
+    v.null(),
+    v.object({
+      _id: v.id("fiscalYears"),
+      _creationTime: v.number(),
+      label: v.string(),
+      startDate: v.string(),
+      endDate: v.string(),
+      status: v.union(
+        v.literal("setup"),
+        v.literal("collecting"),
+        v.literal("building"),
+        v.literal("published"),
+        v.literal("archived"),
+      ),
+      requestDeadline: v.optional(v.string()),
+    }),
+  ),
   handler: async (ctx) => {
     await requireAuthenticatedUser(ctx);
     return await getSingleActiveFiscalYear(ctx);
@@ -163,7 +196,16 @@ export const createFiscalYear = mutation({
 
 export const getWeeks = query({
   args: { fiscalYearId: v.id("fiscalYears") },
-  returns: v.any(),
+  returns: v.array(
+    v.object({
+      _id: v.id("weeks"),
+      _creationTime: v.number(),
+      fiscalYearId: v.id("fiscalYears"),
+      weekNumber: v.number(),
+      startDate: v.string(),
+      endDate: v.string(),
+    }),
+  ),
   handler: async (ctx, args) => {
     await requireAuthenticatedUser(ctx);
     return await ctx.db
@@ -285,7 +327,15 @@ export const updateFiscalYearStatus = mutation({
     fiscalYearId: v.id("fiscalYears"),
     status: fiscalYearStatusValidator,
   },
-  returns: v.any(),
+  returns: v.union(
+    v.object({ message: v.string() }),
+    v.object({
+      message: v.string(),
+      calendarId: v.id("masterCalendars"),
+      publishedAt: v.number(),
+      publishedBy: v.union(v.null(), v.id("physicians")),
+    }),
+  ),
   handler: async (ctx, args) => {
     const admin = await requireAdmin(ctx);
 

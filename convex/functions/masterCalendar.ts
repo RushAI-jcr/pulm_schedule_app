@@ -493,7 +493,98 @@ function buildAvailabilityEntries({
 
 export const getCurrentFiscalYearMasterCalendarDraft = query({
   args: {},
-  returns: v.any(),
+  returns: v.object({
+    fiscalYear: v.union(
+      v.object({
+        _id: v.id("fiscalYears"),
+        _creationTime: v.number(),
+        label: v.string(),
+        startDate: v.string(),
+        endDate: v.string(),
+        status: v.union(v.literal("setup"), v.literal("collecting"), v.literal("building"), v.literal("published"), v.literal("archived")),
+        requestDeadline: v.optional(v.string()),
+      }),
+      v.null(),
+    ),
+    calendar: v.union(
+      v.object({
+        _id: v.id("masterCalendars"),
+        _creationTime: v.number(),
+        fiscalYearId: v.id("fiscalYears"),
+        version: v.number(),
+        status: v.union(v.literal("draft"), v.literal("published")),
+        publishedAt: v.optional(v.number()),
+      }),
+      v.null(),
+    ),
+    rotations: v.array(
+      v.object({
+        _id: v.id("rotations"),
+        _creationTime: v.number(),
+        fiscalYearId: v.id("fiscalYears"),
+        name: v.string(),
+        abbreviation: v.string(),
+        cftePerWeek: v.number(),
+        minStaff: v.number(),
+        maxConsecutiveWeeks: v.number(),
+        sortOrder: v.number(),
+        isActive: v.boolean(),
+      }),
+    ),
+    weeks: v.array(
+      v.object({
+        _id: v.id("weeks"),
+        _creationTime: v.number(),
+        fiscalYearId: v.id("fiscalYears"),
+        weekNumber: v.number(),
+        startDate: v.string(),
+        endDate: v.string(),
+      }),
+    ),
+    grid: v.array(
+      v.object({
+        weekId: v.id("weeks"),
+        weekNumber: v.number(),
+        startDate: v.string(),
+        endDate: v.string(),
+        cells: v.array(
+          v.object({
+            rotationId: v.id("rotations"),
+            assignmentId: v.union(v.id("assignments"), v.null()),
+            physicianId: v.union(v.id("physicians"), v.null()),
+          }),
+        ),
+      }),
+    ),
+    physicians: v.array(
+      v.object({
+        _id: v.id("physicians"),
+        fullName: v.string(),
+        initials: v.string(),
+        role: v.union(v.literal("physician"), v.literal("admin")),
+      }),
+    ),
+    availabilityEntries: v.array(
+      v.object({
+        physicianId: v.id("physicians"),
+        weekId: v.id("weeks"),
+        availability: v.union(v.literal("green"), v.literal("yellow"), v.literal("red")),
+      }),
+    ),
+    cfteSummary: v.array(
+      v.object({
+        physicianId: v.id("physicians"),
+        physicianName: v.string(),
+        initials: v.string(),
+        targetCfte: v.union(v.number(), v.null()),
+        clinicCfte: v.number(),
+        rotationCfte: v.number(),
+        totalCfte: v.number(),
+        headroom: v.union(v.number(), v.null()),
+        isOverTarget: v.boolean(),
+      }),
+    ),
+  }),
   handler: async (ctx) => {
     const { fiscalYear } = await getAdminAndCurrentFiscalYear(ctx);
     if (!fiscalYear) {
@@ -609,7 +700,72 @@ export const getCurrentFiscalYearMasterCalendarDraft = query({
 
 export const getCurrentFiscalYearPublishedMasterCalendar = query({
   args: {},
-  returns: v.any(),
+  returns: v.object({
+    fiscalYear: v.union(
+      v.object({
+        _id: v.id("fiscalYears"),
+        _creationTime: v.number(),
+        label: v.string(),
+        startDate: v.string(),
+        endDate: v.string(),
+        status: v.union(v.literal("setup"), v.literal("collecting"), v.literal("building"), v.literal("published"), v.literal("archived")),
+        requestDeadline: v.optional(v.string()),
+      }),
+      v.null(),
+    ),
+    calendar: v.union(
+      v.object({
+        _id: v.id("masterCalendars"),
+        _creationTime: v.number(),
+        fiscalYearId: v.id("fiscalYears"),
+        version: v.number(),
+        status: v.union(v.literal("draft"), v.literal("published")),
+        publishedAt: v.optional(v.number()),
+      }),
+      v.null(),
+    ),
+    rotations: v.array(
+      v.object({
+        _id: v.id("rotations"),
+        _creationTime: v.number(),
+        fiscalYearId: v.id("fiscalYears"),
+        name: v.string(),
+        abbreviation: v.string(),
+        cftePerWeek: v.number(),
+        minStaff: v.number(),
+        maxConsecutiveWeeks: v.number(),
+        sortOrder: v.number(),
+        isActive: v.boolean(),
+      }),
+    ),
+    weeks: v.array(
+      v.object({
+        _id: v.id("weeks"),
+        _creationTime: v.number(),
+        fiscalYearId: v.id("fiscalYears"),
+        weekNumber: v.number(),
+        startDate: v.string(),
+        endDate: v.string(),
+      }),
+    ),
+    grid: v.array(
+      v.object({
+        weekId: v.id("weeks"),
+        weekNumber: v.number(),
+        startDate: v.string(),
+        endDate: v.string(),
+        cells: v.array(
+          v.object({
+            rotationId: v.id("rotations"),
+            assignmentId: v.union(v.id("assignments"), v.null()),
+            physicianId: v.union(v.id("physicians"), v.null()),
+            physicianName: v.union(v.string(), v.null()),
+            physicianInitials: v.union(v.string(), v.null()),
+          }),
+        ),
+      }),
+    ),
+  }),
   handler: async (ctx) => {
     await requireAuthenticatedUser(ctx);
     const fiscalYear = await getSingleActiveFiscalYear(ctx);
@@ -696,9 +852,186 @@ export const getCurrentFiscalYearPublishedMasterCalendar = query({
   },
 });
 
+export const getPublishedCalendarByFiscalYear = query({
+  args: { fiscalYearId: v.id("fiscalYears") },
+  returns: v.object({
+    fiscalYear: v.union(
+      v.object({
+        _id: v.id("fiscalYears"),
+        _creationTime: v.number(),
+        label: v.string(),
+        startDate: v.string(),
+        endDate: v.string(),
+        status: v.union(v.literal("setup"), v.literal("collecting"), v.literal("building"), v.literal("published"), v.literal("archived")),
+        requestDeadline: v.optional(v.string()),
+      }),
+      v.null(),
+    ),
+    calendar: v.union(
+      v.object({
+        _id: v.id("masterCalendars"),
+        _creationTime: v.number(),
+        fiscalYearId: v.id("fiscalYears"),
+        version: v.number(),
+        status: v.union(v.literal("draft"), v.literal("published")),
+        publishedAt: v.optional(v.number()),
+      }),
+      v.null(),
+    ),
+    rotations: v.array(
+      v.object({
+        _id: v.id("rotations"),
+        _creationTime: v.number(),
+        fiscalYearId: v.id("fiscalYears"),
+        name: v.string(),
+        abbreviation: v.string(),
+        cftePerWeek: v.number(),
+        minStaff: v.number(),
+        maxConsecutiveWeeks: v.number(),
+        sortOrder: v.number(),
+        isActive: v.boolean(),
+      }),
+    ),
+    weeks: v.array(
+      v.object({
+        _id: v.id("weeks"),
+        _creationTime: v.number(),
+        fiscalYearId: v.id("fiscalYears"),
+        weekNumber: v.number(),
+        startDate: v.string(),
+        endDate: v.string(),
+      }),
+    ),
+    grid: v.array(
+      v.object({
+        weekId: v.id("weeks"),
+        weekNumber: v.number(),
+        startDate: v.string(),
+        endDate: v.string(),
+        cells: v.array(
+          v.object({
+            rotationId: v.id("rotations"),
+            assignmentId: v.union(v.id("assignments"), v.null()),
+            physicianId: v.union(v.id("physicians"), v.null()),
+            physicianName: v.union(v.string(), v.null()),
+            physicianInitials: v.union(v.string(), v.null()),
+          }),
+        ),
+      }),
+    ),
+    events: v.array(
+      v.object({
+        weekId: v.id("weeks"),
+        date: v.string(),
+        name: v.string(),
+        category: v.string(),
+      }),
+    ),
+  }),
+  handler: async (ctx, args) => {
+    await requireAuthenticatedUser(ctx);
+    const fiscalYear = await ctx.db.get(args.fiscalYearId);
+    if (!fiscalYear) {
+      return { fiscalYear: null, calendar: null, rotations: [], weeks: [], grid: [], events: [] };
+    }
+
+    const [weeks, rotations, physicians, calendarEvents] = await Promise.all([
+      ctx.db
+        .query("weeks")
+        .withIndex("by_fiscalYear", (q) => q.eq("fiscalYearId", fiscalYear._id))
+        .collect(),
+      ctx.db
+        .query("rotations")
+        .withIndex("by_fiscalYear", (q) => q.eq("fiscalYearId", fiscalYear._id))
+        .collect(),
+      ctx.db.query("physicians").collect(),
+      ctx.db
+        .query("calendarEvents")
+        .withIndex("by_fiscalYear_approved", (q) =>
+          q.eq("fiscalYearId", fiscalYear._id).eq("isApproved", true)
+        )
+        .collect(),
+    ]);
+
+    const sortedWeeks = sortWeeksByWeekNumber(weeks);
+    const activeRotations = sortActiveRotations(rotations);
+    const publishedCalendar = await getPublishedCalendarForFiscalYear(ctx, fiscalYear._id);
+
+    const visibleEvents = calendarEvents
+      .filter((e) => e.isVisible)
+      .map((e) => ({
+        weekId: e.weekId,
+        date: e.date,
+        name: e.name,
+        category: e.category,
+      }));
+
+    if (!publishedCalendar) {
+      return {
+        fiscalYear,
+        calendar: null,
+        rotations: activeRotations,
+        weeks: sortedWeeks,
+        grid: [],
+        events: visibleEvents,
+      };
+    }
+
+    const physicianById = new Map(
+      physicians.map((physician) => [String(physician._id), physician]),
+    );
+
+    const assignments = await ctx.db
+      .query("assignments")
+      .withIndex("by_calendar", (q) => q.eq("masterCalendarId", publishedCalendar._id))
+      .collect();
+
+    const assignmentByKey = new Map(
+      assignments.map((assignment) => [
+        `${String(assignment.weekId)}:${String(assignment.rotationId)}`,
+        assignment,
+      ]),
+    );
+
+    const grid = sortedWeeks.map((week) => ({
+      weekId: week._id,
+      weekNumber: week.weekNumber,
+      startDate: week.startDate,
+      endDate: week.endDate,
+      cells: activeRotations.map((rotation) => {
+        const assignment = assignmentByKey.get(`${String(week._id)}:${String(rotation._id)}`);
+        const physician =
+          assignment?.physicianId
+            ? physicianById.get(String(assignment.physicianId)) ?? null
+            : null;
+
+        return {
+          rotationId: rotation._id,
+          assignmentId: assignment?._id ?? null,
+          physicianId: assignment?.physicianId ?? null,
+          physicianName: physician ? `${physician.firstName} ${physician.lastName}` : null,
+          physicianInitials: physician?.initials ?? null,
+        };
+      }),
+    }));
+
+    return {
+      fiscalYear,
+      calendar: publishedCalendar,
+      rotations: activeRotations,
+      weeks: sortedWeeks,
+      grid,
+      events: visibleEvents,
+    };
+  },
+});
+
 export const createCurrentFiscalYearMasterCalendarDraft = mutation({
   args: {},
-  returns: v.any(),
+  returns: v.object({
+    message: v.string(),
+    calendarId: v.id("masterCalendars"),
+  }),
   handler: async (ctx) => {
     const { fiscalYear } = await getAdminAndCurrentFiscalYear(ctx);
     if (!fiscalYear) throw new Error("No active fiscal year available");
@@ -764,7 +1097,14 @@ export const createCurrentFiscalYearMasterCalendarDraft = mutation({
 });
 
 export const importCurrentFiscalYearMasterCalendarFromRows = mutation({
-  returns: v.any(),
+  returns: v.object({
+    message: v.string(),
+    calendarId: v.id("masterCalendars"),
+    importedAssignments: v.number(),
+    unknownWeekStarts: v.array(v.string()),
+    unknownRotationNames: v.array(v.string()),
+    unknownPhysicianInitials: v.array(v.string()),
+  }),
   args: {
     rows: v.array(
       v.object({
@@ -927,7 +1267,23 @@ export const assignCurrentFiscalYearDraftCell = mutation({
     rotationId: v.id("rotations"),
     physicianId: v.optional(v.id("physicians")),
   },
-  returns: v.any(),
+  returns: v.object({
+    message: v.string(),
+    warnings: v.array(v.string()),
+    cfteSummary: v.array(
+      v.object({
+        physicianId: v.id("physicians"),
+        physicianName: v.string(),
+        initials: v.string(),
+        targetCfte: v.union(v.number(), v.null()),
+        clinicCfte: v.number(),
+        rotationCfte: v.number(),
+        totalCfte: v.number(),
+        headroom: v.union(v.number(), v.null()),
+        isOverTarget: v.boolean(),
+      }),
+    ),
+  }),
   handler: async (ctx, args) => {
     const { admin, fiscalYear } = await getAdminAndCurrentFiscalYear(ctx);
     if (!fiscalYear) throw new Error("No active fiscal year available");
@@ -1079,7 +1435,11 @@ export const assignCurrentFiscalYearDraftCell = mutation({
 
 export const autoAssignCurrentFiscalYearDraft = mutation({
   args: {},
-  returns: v.any(),
+  returns: v.object({
+    message: v.string(),
+    assignedCount: v.number(),
+    remainingUnstaffedCount: v.number(),
+  }),
   handler: async (ctx) => {
     const { admin, fiscalYear } = await getAdminAndCurrentFiscalYear(ctx);
     if (!fiscalYear) throw new Error("No active fiscal year available");
@@ -1248,7 +1608,12 @@ export const autoAssignCurrentFiscalYearDraft = mutation({
 
 export const publishCurrentFiscalYearMasterCalendarDraft = mutation({
   args: {},
-  returns: v.any(),
+  returns: v.object({
+    message: v.string(),
+    calendarId: v.id("masterCalendars"),
+    publishedAt: v.number(),
+    publishedBy: v.union(v.id("physicians"), v.null()),
+  }),
   handler: async (ctx) => {
     const { admin, fiscalYear } = await getAdminAndCurrentFiscalYear(ctx);
     if (!fiscalYear) throw new Error("No active fiscal year available");

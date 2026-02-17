@@ -5,7 +5,7 @@ import {
   parseScheduleImportCsvText,
   parseScheduleImportWorkbook,
   parseUploadMetadataFromFileName,
-} from "../src/lib/scheduleImport";
+} from "../src/shared/services/scheduleImport";
 
 describe("schedule import parser", () => {
   it("maps exact color hex values", () => {

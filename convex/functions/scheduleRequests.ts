@@ -83,7 +83,36 @@ function requireCollectingWindow(
 
 export const getCurrentFiscalYearWeeks = query({
   args: {},
-  returns: v.any(),
+  returns: v.object({
+    fiscalYear: v.union(
+      v.null(),
+      v.object({
+        _id: v.id("fiscalYears"),
+        _creationTime: v.number(),
+        label: v.string(),
+        startDate: v.string(),
+        endDate: v.string(),
+        status: v.union(
+          v.literal("setup"),
+          v.literal("collecting"),
+          v.literal("building"),
+          v.literal("published"),
+          v.literal("archived"),
+        ),
+        requestDeadline: v.optional(v.string()),
+      }),
+    ),
+    weeks: v.array(
+      v.object({
+        _id: v.id("weeks"),
+        _creationTime: v.number(),
+        fiscalYearId: v.id("fiscalYears"),
+        weekNumber: v.number(),
+        startDate: v.string(),
+        endDate: v.string(),
+      }),
+    ),
+  }),
   handler: async (ctx) => {
     await requireAuthenticatedUser(ctx);
     const fiscalYear = await getSingleActiveFiscalYear(ctx);
@@ -104,7 +133,73 @@ export const getCurrentFiscalYearWeeks = query({
 
 export const getMyScheduleRequest = query({
   args: {},
-  returns: v.any(),
+  returns: v.object({
+    fiscalYear: v.union(
+      v.null(),
+      v.object({
+        _id: v.id("fiscalYears"),
+        _creationTime: v.number(),
+        label: v.string(),
+        startDate: v.string(),
+        endDate: v.string(),
+        status: v.union(
+          v.literal("setup"),
+          v.literal("collecting"),
+          v.literal("building"),
+          v.literal("published"),
+          v.literal("archived"),
+        ),
+        requestDeadline: v.optional(v.string()),
+      }),
+    ),
+    request: v.union(
+      v.null(),
+      v.object({
+        _id: v.id("scheduleRequests"),
+        _creationTime: v.number(),
+        physicianId: v.id("physicians"),
+        fiscalYearId: v.id("fiscalYears"),
+        status: v.union(v.literal("draft"), v.literal("submitted"), v.literal("revised")),
+        submittedAt: v.optional(v.number()),
+        specialRequests: v.optional(v.string()),
+        rotationPreferenceApprovalStatus: v.optional(
+          v.union(v.literal("pending"), v.literal("approved")),
+        ),
+        rotationPreferenceApprovedAt: v.optional(v.number()),
+        rotationPreferenceApprovedBy: v.optional(v.id("physicians")),
+      }),
+    ),
+    weekPreferences: v.array(
+      v.object({
+        _id: v.id("weekPreferences"),
+        _creationTime: v.number(),
+        scheduleRequestId: v.id("scheduleRequests"),
+        weekId: v.id("weeks"),
+        availability: v.union(v.literal("green"), v.literal("yellow"), v.literal("red")),
+        reasonCategory: v.optional(
+          v.union(
+            v.literal("vacation"),
+            v.literal("conference"),
+            v.literal("personal_religious"),
+            v.literal("admin_leave"),
+            v.literal("other"),
+          ),
+        ),
+        reasonText: v.optional(v.string()),
+        week: v.union(
+          v.null(),
+          v.object({
+            _id: v.id("weeks"),
+            _creationTime: v.number(),
+            fiscalYearId: v.id("fiscalYears"),
+            weekNumber: v.number(),
+            startDate: v.string(),
+            endDate: v.string(),
+          }),
+        ),
+      }),
+    ),
+  }),
   handler: async (ctx) => {
     const physician = await getCurrentPhysician(ctx);
     const fiscalYear = await getSingleActiveFiscalYear(ctx);
@@ -240,6 +335,73 @@ export const setMyWeekPreference = mutation({
   },
 });
 
+export const batchSetWeekPreferences = mutation({
+  args: {
+    preferences: v.array(
+      v.object({
+        weekId: v.id("weeks"),
+        availability: availabilityValidator,
+        reasonCategory: v.optional(
+          v.union(
+            v.literal("vacation"),
+            v.literal("conference"),
+            v.literal("personal_religious"),
+            v.literal("admin_leave"),
+            v.literal("other"),
+          ),
+        ),
+        reasonText: v.optional(v.string()),
+      }),
+    ),
+  },
+  returns: v.object({ message: v.string(), count: v.number() }),
+  handler: async (ctx, args) => {
+    const physician = await getCurrentPhysician(ctx);
+    const fiscalYear = await getSingleActiveFiscalYear(ctx);
+    if (!fiscalYear) throw new Error("No fiscal year configured");
+
+    requireCollectingWindow(fiscalYear);
+
+    const request = await getOrCreateRequest(ctx, physician._id, fiscalYear._id);
+    if (!request) throw new Error("Failed to load request");
+    await enforceRateLimit(ctx, physician._id, "schedule_week_preference_set");
+
+    for (const pref of args.preferences) {
+      const week = await ctx.db.get(pref.weekId);
+      if (!week || week.fiscalYearId !== fiscalYear._id) {
+        throw new Error(`Invalid week: ${pref.weekId}`);
+      }
+
+      const existing = await ctx.db
+        .query("weekPreferences")
+        .withIndex("by_request_week", (q) =>
+          q.eq("scheduleRequestId", request._id).eq("weekId", pref.weekId),
+        )
+        .first();
+
+      const payload = {
+        scheduleRequestId: request._id,
+        weekId: pref.weekId,
+        availability: pref.availability,
+        reasonCategory: pref.reasonCategory,
+        reasonText: pref.reasonText,
+      };
+
+      if (existing) {
+        await ctx.db.patch(existing._id, payload);
+      } else {
+        await ctx.db.insert("weekPreferences", payload);
+      }
+    }
+
+    if (request.status === "submitted") {
+      await ctx.db.patch(request._id, { status: "revised" });
+    }
+
+    return { message: `Saved ${args.preferences.length} week preferences`, count: args.preferences.length };
+  },
+});
+
 export const importWeekPreferencesFromUpload = mutation({
   args: {
     targetPhysicianId: v.optional(v.id("physicians")),
@@ -254,7 +416,19 @@ export const importWeekPreferencesFromUpload = mutation({
       }),
     ),
   },
-  returns: v.any(),
+  returns: v.object({
+    message: v.string(),
+    physicianId: v.id("physicians"),
+    fiscalYearLabel: v.string(),
+    importedCount: v.number(),
+    clearedCount: v.number(),
+    counts: v.object({
+      red: v.number(),
+      yellow: v.number(),
+      green: v.number(),
+      unset: v.number(),
+    }),
+  }),
   handler: async (ctx, args) => {
     const currentUser = await requireAuthenticatedUser(ctx);
     const fiscalYear = await getSingleActiveFiscalYear(ctx);
@@ -462,7 +636,45 @@ export const submitMyScheduleRequest = mutation({
 
 export const getAdminScheduleRequests = query({
   args: {},
-  returns: v.any(),
+  returns: v.object({
+    fiscalYear: v.union(
+      v.null(),
+      v.object({
+        _id: v.id("fiscalYears"),
+        _creationTime: v.number(),
+        label: v.string(),
+        startDate: v.string(),
+        endDate: v.string(),
+        status: v.union(
+          v.literal("setup"),
+          v.literal("collecting"),
+          v.literal("building"),
+          v.literal("published"),
+          v.literal("archived"),
+        ),
+        requestDeadline: v.optional(v.string()),
+      }),
+    ),
+    requests: v.array(
+      v.object({
+        _id: v.id("scheduleRequests"),
+        _creationTime: v.number(),
+        physicianId: v.id("physicians"),
+        fiscalYearId: v.id("fiscalYears"),
+        status: v.union(v.literal("draft"), v.literal("submitted"), v.literal("revised")),
+        submittedAt: v.optional(v.number()),
+        specialRequests: v.optional(v.string()),
+        rotationPreferenceApprovalStatus: v.optional(
+          v.union(v.literal("pending"), v.literal("approved")),
+        ),
+        rotationPreferenceApprovedAt: v.optional(v.number()),
+        rotationPreferenceApprovedBy: v.optional(v.id("physicians")),
+        physicianName: v.string(),
+        physicianInitials: v.string(),
+        preferenceCount: v.number(),
+      }),
+    ),
+  }),
   handler: async (ctx) => {
     await requireAdmin(ctx);
 

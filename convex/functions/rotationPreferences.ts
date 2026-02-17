@@ -90,7 +90,78 @@ async function setRotationPreferenceApprovalPending(
 
 export const getMyRotationPreferences = query({
   args: {},
-  returns: v.any(),
+  returns: v.object({
+    fiscalYear: v.union(
+      v.null(),
+      v.object({
+        _id: v.id("fiscalYears"),
+        _creationTime: v.number(),
+        label: v.string(),
+        startDate: v.string(),
+        endDate: v.string(),
+        requestDeadline: v.optional(v.string()),
+        status: v.union(
+          v.literal("setup"),
+          v.literal("collecting"),
+          v.literal("building"),
+          v.literal("published"),
+          v.literal("archived"),
+        ),
+      }),
+    ),
+    request: v.union(
+      v.null(),
+      v.object({
+        _id: v.id("scheduleRequests"),
+        _creationTime: v.number(),
+        physicianId: v.id("physicians"),
+        fiscalYearId: v.id("fiscalYears"),
+        status: v.union(v.literal("draft"), v.literal("submitted"), v.literal("revised")),
+        submittedAt: v.optional(v.number()),
+        specialRequests: v.optional(v.string()),
+        rotationPreferenceApprovalStatus: v.optional(
+          v.union(v.literal("pending"), v.literal("approved")),
+        ),
+        rotationPreferenceApprovedAt: v.optional(v.number()),
+        rotationPreferenceApprovedBy: v.optional(v.id("physicians")),
+      }),
+    ),
+    rotations: v.array(
+      v.object({
+        rotation: v.object({
+          _id: v.id("rotations"),
+          _creationTime: v.number(),
+          fiscalYearId: v.id("fiscalYears"),
+          name: v.string(),
+          abbreviation: v.string(),
+          cftePerWeek: v.number(),
+          minStaff: v.number(),
+          maxConsecutiveWeeks: v.number(),
+          sortOrder: v.number(),
+          isActive: v.boolean(),
+        }),
+        preference: v.union(
+          v.null(),
+          v.object({
+            _id: v.id("rotationPreferences"),
+            _creationTime: v.number(),
+            scheduleRequestId: v.id("scheduleRequests"),
+            rotationId: v.id("rotations"),
+            preferenceRank: v.optional(v.number()),
+            avoid: v.boolean(),
+            deprioritize: v.optional(v.boolean()),
+            avoidReason: v.optional(v.string()),
+          }),
+        ),
+      }),
+    ),
+    requiredCount: v.number(),
+    configuredCount: v.number(),
+    missingRotationNames: v.array(v.string()),
+    isComplete: v.boolean(),
+    approvalStatus: v.union(v.literal("pending"), v.literal("approved")),
+    isApprovedForMapping: v.boolean(),
+  }),
   handler: async (ctx) => {
     const physician = await getCurrentPhysician(ctx);
     const fiscalYear = await getSingleActiveFiscalYear(ctx);
@@ -235,7 +306,93 @@ export const setMyRotationPreference = mutation({
 
 export const getAdminRotationPreferenceMatrix = query({
   args: {},
-  returns: v.any(),
+  returns: v.object({
+    fiscalYear: v.union(
+      v.null(),
+      v.object({
+        _id: v.id("fiscalYears"),
+        _creationTime: v.number(),
+        label: v.string(),
+        startDate: v.string(),
+        endDate: v.string(),
+        requestDeadline: v.optional(v.string()),
+        status: v.union(
+          v.literal("setup"),
+          v.literal("collecting"),
+          v.literal("building"),
+          v.literal("published"),
+          v.literal("archived"),
+        ),
+      }),
+    ),
+    rotations: v.array(
+      v.object({
+        _id: v.id("rotations"),
+        name: v.string(),
+        abbreviation: v.string(),
+      }),
+    ),
+    physicians: v.array(
+      v.object({
+        _id: v.id("physicians"),
+        fullName: v.string(),
+        initials: v.string(),
+        role: v.union(v.literal("physician"), v.literal("admin")),
+      }),
+    ),
+    rows: v.array(
+      v.object({
+        physicianId: v.id("physicians"),
+        physicianName: v.string(),
+        physicianInitials: v.string(),
+        role: v.union(v.literal("physician"), v.literal("admin")),
+        requestId: v.union(v.null(), v.id("scheduleRequests")),
+        approvalStatus: v.union(v.literal("pending"), v.literal("approved")),
+        configuredCount: v.number(),
+        requiredCount: v.number(),
+        missingRotationNames: v.array(v.string()),
+        blockingReasons: v.array(v.string()),
+        isReadyForMapping: v.boolean(),
+        preferences: v.array(
+          v.object({
+            rotationId: v.id("rotations"),
+            preference: v.union(
+              v.null(),
+              v.object({
+                _id: v.id("rotationPreferences"),
+                _creationTime: v.number(),
+                scheduleRequestId: v.id("scheduleRequests"),
+                rotationId: v.id("rotations"),
+                preferenceRank: v.optional(v.number()),
+                avoid: v.boolean(),
+                deprioritize: v.optional(v.boolean()),
+                avoidReason: v.optional(v.string()),
+              }),
+            ),
+          }),
+        ),
+      }),
+    ),
+    missingPreferencePhysicians: v.array(
+      v.object({
+        physicianId: v.id("physicians"),
+        physicianName: v.string(),
+        physicianInitials: v.string(),
+      }),
+    ),
+    summary: v.object({
+      requiredCountPerPhysician: v.number(),
+      readyForMappingCount: v.number(),
+      pendingApprovalCount: v.number(),
+      incompleteCount: v.number(),
+    }),
+    rotationConfiguration: v.object({
+      isValid: v.boolean(),
+      missingRequiredNames: v.array(v.string()),
+      unexpectedNames: v.array(v.string()),
+      blockingReason: v.union(v.null(), v.string()),
+    }),
+  }),
   handler: async (ctx) => {
     await requireAdmin(ctx);
 

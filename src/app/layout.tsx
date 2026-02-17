@@ -3,30 +3,12 @@ import type { ReactNode } from "react";
 import { withAuth } from "@workos-inc/authkit-nextjs";
 import "../index.css";
 import { Providers } from "./providers";
-import { THEME_STORAGE_KEY } from "@/lib/theme";
+import { ThemeProvider } from "@/components/theme-provider";
 
 export const metadata: Metadata = {
   title: "Rush PCCM Calendar Assistant",
   description: "Rush PCCM calendar planning and scheduling administration",
 };
-
-const themeScript = `
-(() => {
-  try {
-    const persistedTheme = window.localStorage.getItem("${THEME_STORAGE_KEY}");
-    const isThemeValid = persistedTheme === "light" || persistedTheme === "dark";
-    const resolvedTheme = isThemeValid
-      ? persistedTheme
-      : (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
-    const root = document.documentElement;
-    root.classList.toggle("dark", resolvedTheme === "dark");
-    root.setAttribute("data-theme", resolvedTheme);
-  } catch {
-    document.documentElement.classList.remove("dark");
-    document.documentElement.setAttribute("data-theme", "light");
-  }
-})();
-`;
 
 export default async function RootLayout({
   children,
@@ -37,11 +19,16 @@ export default async function RootLayout({
 
   return (
     <html lang="en" suppressHydrationWarning>
-      <head>
-        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
-      </head>
+      <head />
       <body>
-        <Providers initialAuth={initialAuth}>{children}</Providers>
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="system"
+          enableSystem
+          disableTransitionOnChange
+        >
+          <Providers initialAuth={initialAuth}>{children}</Providers>
+        </ThemeProvider>
       </body>
     </html>
   );

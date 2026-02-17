@@ -37,6 +37,7 @@ import type * as lib_rateLimit from "../lib/rateLimit.js";
 import type * as lib_roles from "../lib/roles.js";
 import type * as lib_rotationPreferenceReadiness from "../lib/rotationPreferenceReadiness.js";
 import type * as lib_scheduleImport from "../lib/scheduleImport.js";
+import type * as lib_sorting from "../lib/sorting.js";
 import type * as lib_workflowPolicy from "../lib/workflowPolicy.js";
 import type * as router from "../router.js";
 
@@ -76,6 +77,7 @@ declare const fullApi: ApiFromModules<{
   "lib/roles": typeof lib_roles;
   "lib/rotationPreferenceReadiness": typeof lib_rotationPreferenceReadiness;
   "lib/scheduleImport": typeof lib_scheduleImport;
+  "lib/sorting": typeof lib_sorting;
   "lib/workflowPolicy": typeof lib_workflowPolicy;
   router: typeof router;
 }>;

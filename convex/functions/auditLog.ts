@@ -38,7 +38,43 @@ export const getCurrentFiscalYearAuditLog = query({
     actionFilter: v.optional(v.string()),
     entityTypeFilter: v.optional(v.string()),
   },
-  returns: v.any(),
+  returns: v.object({
+    fiscalYear: v.union(
+      v.null(),
+      v.object({
+        _id: v.id("fiscalYears"),
+        _creationTime: v.number(),
+        label: v.string(),
+        startDate: v.string(),
+        endDate: v.string(),
+        status: v.union(
+          v.literal("setup"),
+          v.literal("collecting"),
+          v.literal("building"),
+          v.literal("published"),
+          v.literal("archived"),
+        ),
+        requestDeadline: v.optional(v.string()),
+      }),
+    ),
+    items: v.array(
+      v.object({
+        _id: v.id("auditLog"),
+        _creationTime: v.number(),
+        fiscalYearId: v.id("fiscalYears"),
+        userId: v.id("physicians"),
+        action: v.string(),
+        entityType: v.string(),
+        entityId: v.string(),
+        before: v.optional(v.string()),
+        after: v.optional(v.string()),
+        timestamp: v.number(),
+        userName: v.string(),
+      }),
+    ),
+    nextCursor: v.union(v.string(), v.null()),
+    totalCount: v.number(),
+  }),
   handler: async (ctx, args) => {
     const fiscalYear = await getCurrentFiscalYearForAdmin(ctx);
     if (!fiscalYear) {

@@ -3,7 +3,7 @@ import { v } from "convex/values";
 import { makeFunctionReference } from "convex/server";
 import { internal } from "../_generated/api";
 import { Id } from "../_generated/dataModel";
-import { requireAdmin, requireAuthenticatedUser } from "../lib/auth";
+import { requireAdmin, requireAdminAction, requireAuthenticatedUser } from "../lib/auth";
 import { getSingleActiveFiscalYear } from "../lib/fiscalYear";
 import {
   buildHolidayEventKey,
@@ -41,7 +41,6 @@ const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const NAGER_DATE_US_PUBLIC_HOLIDAYS_URL = "https://date.nager.at/api/v3/PublicHolidays";
 const CALENDARIFIC_HOLIDAYS_URL = "https://calendarific.com/api/v2/holidays";
 const CALENDARIFIC_COUNTRY_CODE = "US";
-const getLoggedInUserRef = makeFunctionReference<"query">("auth:loggedInUser");
 const getCurrentFiscalYearRef = makeFunctionReference<"query">(
   "functions/fiscalYears:getCurrentFiscalYear",
 );
@@ -49,10 +48,6 @@ const getWeeksRef = makeFunctionReference<"query">("functions/fiscalYears:getWee
 const getCurrentFiscalYearCalendarEventsRef = makeFunctionReference<"query">(
   "functions/calendarEvents:getCurrentFiscalYearCalendarEvents",
 );
-type ActionUserProfile = {
-  role: string;
-  physicianId: string | null;
-};
 
 type ExistingCalendarEvent = {
   _id: Id<"calendarEvents">;
@@ -83,7 +78,41 @@ function parseCalendarificPayload(payload: unknown, year: number): CalendarificH
 
 export const getCurrentFiscalYearCalendarEvents = query({
   args: {},
-  returns: v.any(),
+  returns: v.object({
+    fiscalYear: v.union(
+      v.null(),
+      v.object({
+        _id: v.id("fiscalYears"),
+        _creationTime: v.number(),
+        label: v.string(),
+        startDate: v.string(),
+        endDate: v.string(),
+        status: v.union(
+          v.literal("setup"),
+          v.literal("collecting"),
+          v.literal("building"),
+          v.literal("published"),
+          v.literal("archived"),
+        ),
+        requestDeadline: v.optional(v.string()),
+      }),
+    ),
+    events: v.array(
+      v.object({
+        _id: v.id("calendarEvents"),
+        _creationTime: v.number(),
+        fiscalYearId: v.id("fiscalYears"),
+        weekId: v.id("weeks"),
+        date: v.string(),
+        name: v.string(),
+        category: eventCategoryValidator,
+        source: eventSourceValidator,
+        isApproved: v.boolean(),
+        isVisible: v.boolean(),
+        addedBy: v.optional(v.string()),
+      }),
+    ),
+  }),
   handler: async (ctx) => {
     const currentUser = await requireAuthenticatedUser(ctx);
     const fiscalYear = await getSingleActiveFiscalYear(ctx);
@@ -222,7 +251,35 @@ export const deleteCalendarEvent = mutation({
 
 export const getCurrentFiscalYearInstitutionalConferences = query({
   args: {},
-  returns: v.any(),
+  returns: v.object({
+    fiscalYear: v.union(
+      v.null(),
+      v.object({
+        _id: v.id("fiscalYears"),
+        _creationTime: v.number(),
+        label: v.string(),
+        startDate: v.string(),
+        endDate: v.string(),
+        status: v.union(
+          v.literal("setup"),
+          v.literal("collecting"),
+          v.literal("building"),
+          v.literal("published"),
+          v.literal("archived"),
+        ),
+        requestDeadline: v.optional(v.string()),
+      }),
+    ),
+    conferences: v.array(
+      v.object({
+        name: institutionalConferenceNameValidator,
+        eventId: v.union(v.null(), v.id("calendarEvents")),
+        date: v.union(v.null(), v.string()),
+        weekId: v.union(v.null(), v.id("weeks")),
+        isVisible: v.boolean(),
+      }),
+    ),
+  }),
   handler: async (ctx) => {
     await requireAdmin(ctx);
     const fiscalYear = await getSingleActiveFiscalYear(ctx);
@@ -271,7 +328,12 @@ export const setCurrentFiscalYearInstitutionalConferenceDate = mutation({
     date: v.string(),
     isVisible: v.optional(v.boolean()),
   },
-  returns: v.any(),
+  returns: v.object({
+    message: v.string(),
+    conferenceName: institutionalConferenceNameValidator,
+    date: v.string(),
+    weekNumber: v.number(),
+  }),
   handler: async (ctx, args) => {
     const admin = await requireAdmin(ctx);
     const fiscalYear = await getSingleActiveFiscalYear(ctx);
@@ -290,7 +352,7 @@ export const setCurrentFiscalYearInstitutionalConferenceDate = mutation({
       .withIndex("by_fiscalYear", (q) => q.eq("fiscalYearId", fiscalYear._id))
       .collect();
     const targetWeek = findFiscalWeekForDate(weeks, args.date);
-    if (!targetWeek) {
+    if (!targetWeek || targetWeek.weekNumber === undefined) {
       throw new Error(`Could not map ${args.date} to a fiscal week for ${fiscalYear.label}`);
     }
 
@@ -383,15 +445,18 @@ export const batchUpsertCalendarEvents = internalMutation({
 
 export const importCurrentFiscalYearUsPublicHolidays = action({
   args: {},
-  returns: v.any(),
+  returns: v.object({
+    message: v.string(),
+    fiscalYearLabel: v.string(),
+    yearsQueried: v.array(v.number()),
+    rawHolidayCount: v.number(),
+    mappedHolidayCount: v.number(),
+    insertedCount: v.number(),
+    updatedCount: v.number(),
+    skippedExistingCount: v.number(),
+  }),
   handler: async (ctx) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Not authenticated");
-
-    const userProfile = (await ctx.runQuery(getLoggedInUserRef, {})) as ActionUserProfile | null;
-    if (!userProfile || userProfile.role !== "admin") {
-      throw new Error("Admin access required");
-    }
+    await requireAdminAction(ctx);
 
     const fiscalYear = await ctx.runQuery(getCurrentFiscalYearRef, {});
     if (!fiscalYear) throw new Error("No active fiscal year available");
@@ -514,15 +579,18 @@ export const importCurrentFiscalYearUsPublicHolidays = action({
 
 export const importCurrentFiscalYearReligiousObservances = action({
   args: {},
-  returns: v.any(),
+  returns: v.object({
+    message: v.string(),
+    fiscalYearLabel: v.string(),
+    yearsQueried: v.array(v.number()),
+    rawHolidayCount: v.number(),
+    mappedHolidayCount: v.number(),
+    insertedCount: v.number(),
+    updatedCount: v.number(),
+    skippedExistingCount: v.number(),
+  }),
   handler: async (ctx) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Not authenticated");
-
-    const userProfile = (await ctx.runQuery(getLoggedInUserRef, {})) as ActionUserProfile | null;
-    if (!userProfile || userProfile.role !== "admin") {
-      throw new Error("Admin access required");
-    }
+    await requireAdminAction(ctx);
 
     const fiscalYear = await ctx.runQuery(getCurrentFiscalYearRef, {});
     if (!fiscalYear) throw new Error("No active fiscal year available");

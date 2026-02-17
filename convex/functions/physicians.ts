@@ -72,13 +72,27 @@ export const getPhysicianCount = query({
   args: {},
   returns: v.number(),
   handler: async (ctx) => {
+    await requireAuthenticatedUser(ctx);
     return (await ctx.db.query("physicians").collect()).length;
   },
 });
 
 export const getMyProfile = query({
   args: {},
-  returns: v.any(),
+  returns: v.union(
+    v.null(),
+    v.object({
+      _id: v.id("physicians"),
+      _creationTime: v.number(),
+      userId: v.optional(v.string()),
+      firstName: v.string(),
+      lastName: v.string(),
+      initials: v.string(),
+      email: v.string(),
+      role: v.union(v.literal("physician"), v.literal("admin")),
+      isActive: v.boolean(),
+    }),
+  ),
   handler: async (ctx) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) return null;
@@ -191,7 +205,10 @@ export const syncWorkosSessionUser = mutation({
     firstName: v.optional(v.string()),
     lastName: v.optional(v.string()),
   },
-  returns: v.any(),
+  returns: v.object({
+    linkedPhysicianId: v.union(v.id("physicians"), v.null()),
+    role: v.union(v.literal("viewer"), v.literal("physician"), v.literal("admin")),
+  }),
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Not authenticated");
@@ -286,7 +303,19 @@ export const syncWorkosSessionUser = mutation({
 
 export const getPhysicians = query({
   args: {},
-  returns: v.any(),
+  returns: v.array(
+    v.object({
+      _id: v.id("physicians"),
+      _creationTime: v.number(),
+      userId: v.optional(v.string()),
+      firstName: v.string(),
+      lastName: v.string(),
+      initials: v.string(),
+      email: v.string(),
+      role: v.union(v.literal("physician"), v.literal("admin")),
+      isActive: v.boolean(),
+    }),
+  ),
   handler: async (ctx) => {
     await requireAuthenticatedUser(ctx);
     const physicians = await ctx.db.query("physicians").collect();
@@ -301,7 +330,19 @@ export const getPhysicians = query({
 
 export const getPhysiciansByRole = query({
   args: { role: v.union(v.literal("physician"), v.literal("admin")) },
-  returns: v.any(),
+  returns: v.array(
+    v.object({
+      _id: v.id("physicians"),
+      _creationTime: v.number(),
+      userId: v.optional(v.string()),
+      firstName: v.string(),
+      lastName: v.string(),
+      initials: v.string(),
+      email: v.string(),
+      role: v.union(v.literal("physician"), v.literal("admin")),
+      isActive: v.boolean(),
+    }),
+  ),
   handler: async (ctx, args) => {
     await requireAuthenticatedUser(ctx);
     return await ctx.db
@@ -464,7 +505,15 @@ export const seedPhysicians = mutation({
 
 export const seedAdminRoles = mutation({
   args: {},
-  returns: v.any(),
+  returns: v.object({
+    message: v.string(),
+    results: v.array(
+      v.object({
+        initials: v.string(),
+        status: v.union(v.literal("updated"), v.literal("unchanged"), v.literal("missing")),
+      }),
+    ),
+  }),
   handler: async (ctx) => {
     await requireAdmin(ctx);
 

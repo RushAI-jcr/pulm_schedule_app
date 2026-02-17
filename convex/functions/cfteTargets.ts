@@ -11,7 +11,38 @@ async function getCurrentFiscalYearForAdmin(ctx: QueryCtx | MutationCtx) {
 
 export const getCurrentFiscalYearCfteTargets = query({
   args: {},
-  returns: v.any(),
+  returns: v.union(
+    v.object({
+      fiscalYear: v.null(),
+      targets: v.array(v.any()),
+    }),
+    v.object({
+      fiscalYear: v.object({
+        _id: v.id("fiscalYears"),
+        _creationTime: v.number(),
+        label: v.string(),
+        startDate: v.string(),
+        endDate: v.string(),
+        status: v.union(
+          v.literal("setup"),
+          v.literal("collecting"),
+          v.literal("building"),
+          v.literal("published"),
+          v.literal("archived"),
+        ),
+        requestDeadline: v.optional(v.string()),
+      }),
+      targets: v.array(
+        v.object({
+          physicianId: v.id("physicians"),
+          physicianName: v.string(),
+          initials: v.string(),
+          role: v.union(v.literal("admin"), v.literal("physician")),
+          targetCfte: v.union(v.number(), v.null()),
+        }),
+      ),
+    }),
+  ),
   handler: async (ctx) => {
     const fiscalYear = await getCurrentFiscalYearForAdmin(ctx);
     if (!fiscalYear) {

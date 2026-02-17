@@ -237,7 +237,52 @@ async function hydrateTrades(ctx: AnyCtx, trades: Array<Doc<"tradeRequests">>): 
 
 export const getTradeProposalOptions = query({
   args: {},
-  returns: v.any(),
+  returns: v.object({
+    enabled: v.boolean(),
+    reason: v.union(v.string(), v.null()),
+    fiscalYear: v.union(
+      v.object({
+        _id: v.id("fiscalYears"),
+        _creationTime: v.number(),
+        label: v.string(),
+        startDate: v.string(),
+        endDate: v.string(),
+        status: v.union(
+          v.literal("setup"),
+          v.literal("collecting"),
+          v.literal("building"),
+          v.literal("published"),
+          v.literal("archived"),
+        ),
+        requestDeadline: v.optional(v.string()),
+      }),
+      v.null(),
+    ),
+    myAssignments: v.array(
+      v.object({
+        assignmentId: v.id("assignments"),
+        physicianId: v.union(v.id("physicians"), v.null()),
+        weekNumber: v.union(v.number(), v.null()),
+        weekId: v.id("weeks"),
+        rotationId: v.id("rotations"),
+        weekLabel: v.string(),
+        rotationLabel: v.string(),
+        physicianName: v.string(),
+      }),
+    ),
+    availableAssignments: v.array(
+      v.object({
+        assignmentId: v.id("assignments"),
+        physicianId: v.union(v.id("physicians"), v.null()),
+        weekNumber: v.union(v.number(), v.null()),
+        weekId: v.id("weeks"),
+        rotationId: v.id("rotations"),
+        weekLabel: v.string(),
+        rotationLabel: v.string(),
+        physicianName: v.string(),
+      }),
+    ),
+  }),
   handler: async (ctx) => {
     const physician = await getCurrentPhysician(ctx);
     const fiscalYear = await getActiveTradeFiscalYear(ctx);
@@ -337,7 +382,64 @@ export const getTradeCandidatesForAssignment = query({
   args: {
     requesterAssignmentId: v.id("assignments"),
   },
-  returns: v.any(),
+  returns: v.object({
+    enabled: v.boolean(),
+    reason: v.union(v.string(), v.null()),
+    fiscalYear: v.union(
+      v.object({
+        _id: v.id("fiscalYears"),
+        _creationTime: v.number(),
+        label: v.string(),
+        startDate: v.string(),
+        endDate: v.string(),
+        status: v.union(
+          v.literal("setup"),
+          v.literal("collecting"),
+          v.literal("building"),
+          v.literal("published"),
+          v.literal("archived"),
+        ),
+        requestDeadline: v.optional(v.string()),
+      }),
+      v.null(),
+    ),
+    requesterAssignment: v.union(
+      v.object({
+        assignmentId: v.id("assignments"),
+        weekLabel: v.string(),
+        rotationLabel: v.string(),
+      }),
+      v.null(),
+    ),
+    suggestions: v.array(
+      v.object({
+        physicianId: v.id("physicians"),
+        physicianName: v.string(),
+        physicianInitials: v.string(),
+        physicianEmail: v.string(),
+        score: v.number(),
+        hasServicePreviousWeek: v.boolean(),
+        hasServiceNextWeek: v.boolean(),
+        preferenceLabel: v.string(),
+        suggestedAssignmentCount: v.number(),
+        notes: v.array(v.string()),
+        suggestedAssignments: v.array(
+          v.object({
+            assignmentId: v.id("assignments"),
+            weekLabel: v.string(),
+            rotationLabel: v.string(),
+          }),
+        ),
+      }),
+    ),
+    excludedSummary: v.object({
+      alreadyOnServiceThisWeek: v.number(),
+      missingScheduleRequest: v.number(),
+      missingRotationPreference: v.number(),
+      markedDoNotAssign: v.number(),
+    }),
+    totalCandidateCount: v.optional(v.number()),
+  }),
   handler: async (ctx, args) => {
     const physician = await getCurrentPhysician(ctx);
     const fiscalYear = await getActiveTradeFiscalYear(ctx);
@@ -605,7 +707,38 @@ export const getTradeCandidatesForAssignment = query({
 
 export const getMyTrades = query({
   args: {},
-  returns: v.any(),
+  returns: v.array(
+    v.object({
+      _id: v.id("tradeRequests"),
+      _creationTime: v.number(),
+      fiscalYearId: v.id("fiscalYears"),
+      masterCalendarId: v.id("masterCalendars"),
+      requestingPhysicianId: v.id("physicians"),
+      targetPhysicianId: v.id("physicians"),
+      requesterWeekId: v.id("weeks"),
+      requesterRotationId: v.id("rotations"),
+      targetWeekId: v.id("weeks"),
+      targetRotationId: v.id("rotations"),
+      status: v.union(
+        v.literal("proposed"),
+        v.literal("peer_accepted"),
+        v.literal("peer_declined"),
+        v.literal("admin_approved"),
+        v.literal("admin_denied"),
+        v.literal("cancelled"),
+      ),
+      reason: v.optional(v.string()),
+      adminNotes: v.optional(v.string()),
+      createdAt: v.number(),
+      resolvedAt: v.optional(v.number()),
+      requesterName: v.string(),
+      targetName: v.string(),
+      requesterWeekLabel: v.string(),
+      targetWeekLabel: v.string(),
+      requesterRotationLabel: v.string(),
+      targetRotationLabel: v.string(),
+    }),
+  ),
   handler: async (ctx) => {
     const physician = await getCurrentPhysician(ctx);
 
@@ -630,7 +763,38 @@ export const getMyTrades = query({
 
 export const getAdminTradeQueue = query({
   args: {},
-  returns: v.any(),
+  returns: v.array(
+    v.object({
+      _id: v.id("tradeRequests"),
+      _creationTime: v.number(),
+      fiscalYearId: v.id("fiscalYears"),
+      masterCalendarId: v.id("masterCalendars"),
+      requestingPhysicianId: v.id("physicians"),
+      targetPhysicianId: v.id("physicians"),
+      requesterWeekId: v.id("weeks"),
+      requesterRotationId: v.id("rotations"),
+      targetWeekId: v.id("weeks"),
+      targetRotationId: v.id("rotations"),
+      status: v.union(
+        v.literal("proposed"),
+        v.literal("peer_accepted"),
+        v.literal("peer_declined"),
+        v.literal("admin_approved"),
+        v.literal("admin_denied"),
+        v.literal("cancelled"),
+      ),
+      reason: v.optional(v.string()),
+      adminNotes: v.optional(v.string()),
+      createdAt: v.number(),
+      resolvedAt: v.optional(v.number()),
+      requesterName: v.string(),
+      targetName: v.string(),
+      requesterWeekLabel: v.string(),
+      targetWeekLabel: v.string(),
+      requesterRotationLabel: v.string(),
+      targetRotationLabel: v.string(),
+    }),
+  ),
   handler: async (ctx) => {
     await requireAdmin(ctx);
     const fiscalYear = await getActiveTradeFiscalYear(ctx);

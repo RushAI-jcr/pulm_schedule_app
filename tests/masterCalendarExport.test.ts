@@ -5,7 +5,7 @@ import {
   buildMasterCalendarExportWorkbook,
   buildMasterCalendarIcs,
   MasterCalendarExportData,
-} from "../src/lib/masterCalendarExport";
+} from "../src/shared/services/masterCalendarExport";
 
 const fixture: MasterCalendarExportData = {
   fiscalYearLabel: "FY27",

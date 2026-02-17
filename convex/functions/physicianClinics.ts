@@ -11,7 +11,60 @@ async function getCurrentFiscalYearForAdmin(ctx: QueryCtx | MutationCtx) {
 
 export const getCurrentFiscalYearPhysicianClinics = query({
   args: {},
-  returns: v.any(),
+  returns: v.union(
+    v.object({
+      fiscalYear: v.null(),
+      physicians: v.array(v.any()),
+      clinicTypes: v.array(v.any()),
+      assignments: v.array(v.any()),
+    }),
+    v.object({
+      fiscalYear: v.object({
+        _id: v.id("fiscalYears"),
+        _creationTime: v.number(),
+        label: v.string(),
+        startDate: v.string(),
+        endDate: v.string(),
+        status: v.union(
+          v.literal("setup"),
+          v.literal("collecting"),
+          v.literal("building"),
+          v.literal("published"),
+          v.literal("archived"),
+        ),
+        requestDeadline: v.optional(v.string()),
+      }),
+      physicians: v.array(
+        v.object({
+          _id: v.id("physicians"),
+          fullName: v.string(),
+          initials: v.string(),
+          role: v.union(v.literal("admin"), v.literal("physician")),
+        }),
+      ),
+      clinicTypes: v.array(
+        v.object({
+          _id: v.id("clinicTypes"),
+          _creationTime: v.number(),
+          fiscalYearId: v.id("fiscalYears"),
+          name: v.string(),
+          cftePerHalfDay: v.number(),
+          isActive: v.boolean(),
+        }),
+      ),
+      assignments: v.array(
+        v.object({
+          _id: v.id("physicianClinics"),
+          _creationTime: v.number(),
+          physicianId: v.id("physicians"),
+          clinicTypeId: v.id("clinicTypes"),
+          fiscalYearId: v.id("fiscalYears"),
+          halfDaysPerWeek: v.number(),
+          activeWeeks: v.number(),
+        }),
+      ),
+    }),
+  ),
   handler: async (ctx) => {
     const fiscalYear = await getCurrentFiscalYearForAdmin(ctx);
     if (!fiscalYear) {

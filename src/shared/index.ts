@@ -1,2 +1,1 @@
-export { cn } from "./utils/utils";
-export type { ThemeMode } from "../config/theme";
+export { cn } from "../lib/utils";

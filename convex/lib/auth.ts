@@ -1,6 +1,7 @@
 import { Doc, Id } from "../_generated/dataModel";
-import { QueryCtx, MutationCtx } from "../_generated/server";
-import { AppRole, getIdentityRoleClaims, resolveEffectiveRole } from "./roles";
+import { QueryCtx, MutationCtx, ActionCtx } from "../_generated/server";
+import { makeFunctionReference } from "convex/server";
+import { AppRole, getIdentityRoleClaims, normalizeAppRole, resolveEffectiveRole } from "./roles";
 
 type AuthCtx = QueryCtx | MutationCtx;
 
@@ -124,4 +125,28 @@ export async function requireAdmin(ctx: AuthCtx): Promise<AdminAccess> {
       : (currentUser.appUser?.workosUserId ?? currentUser.workosUserId),
     actorPhysicianId: currentUser.physician?._id ?? null,
   };
+}
+
+// ---------------------------------------------------------------
+// Action-compatible auth guard
+// Actions don't have ctx.db, so they resolve roles via runQuery.
+// ---------------------------------------------------------------
+
+const loggedInUserRef = makeFunctionReference<"query">("auth:loggedInUser");
+
+type ActionUserProfile = {
+  role: string;
+  physicianId: string | null;
+};
+
+export async function requireAdminAction(ctx: ActionCtx): Promise<{ role: "admin"; physicianId: string | null }> {
+  const identity = await ctx.auth.getUserIdentity();
+  if (!identity) throw new Error("Not authenticated");
+
+  const userProfile = (await ctx.runQuery(loggedInUserRef, {})) as ActionUserProfile | null;
+  if (!userProfile || normalizeAppRole(userProfile.role) !== "admin") {
+    throw new Error("Admin access required");
+  }
+
+  return { role: "admin", physicianId: userProfile.physicianId };
 }

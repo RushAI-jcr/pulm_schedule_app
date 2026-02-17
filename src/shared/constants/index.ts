@@ -1,4 +1,4 @@
-import { AvailabilityOption } from "@/types";
+import { AvailabilityOption } from "@/shared/types";
 
 export const availabilityOptions: AvailabilityOption[] = [
   { value: "green", label: "Green - OK to work" },

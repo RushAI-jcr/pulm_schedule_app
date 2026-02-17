@@ -1,19 +1,13 @@
 import { NextRequest } from "next/server";
 import { authkit, handleAuthkitHeaders } from "@workos-inc/authkit-nextjs";
 import { ConvexHttpClient } from "convex/browser";
-import { api } from "./convex/_generated/api";
+import { api } from "../convex/_generated/api";
+
+// ---------------------------------------------------------------------------
+// Role helpers (inlined for Edge runtime compatibility — mirrors convex/lib/roles.ts)
+// ---------------------------------------------------------------------------
 
 type AppRole = "viewer" | "physician" | "admin";
-
-const unauthenticatedPaths = ["/", "/sign-in", "/sign-up", "/callback", "/reset-password"];
-
-const routeRoleRequirements: Array<{ prefix: string; role: AppRole }> = [
-  { prefix: "/fy-setup", role: "admin" },
-  { prefix: "/heatmap", role: "admin" },
-  { prefix: "/roster", role: "admin" },
-  { prefix: "/dashboard/admin", role: "admin" },
-  { prefix: "/trades", role: "physician" },
-];
 
 const ROLE_RANK: Record<AppRole, number> = {
   viewer: 0,
@@ -21,15 +15,7 @@ const ROLE_RANK: Record<AppRole, number> = {
   admin: 2,
 };
 
-function isPathMatch(pathname: string, prefix: string) {
-  return pathname === prefix || pathname.startsWith(`${prefix}/`);
-}
-
-function isPublicPath(pathname: string) {
-  return unauthenticatedPaths.some((prefix) => isPathMatch(pathname, prefix));
-}
-
-function normalizeRole(role: string | null | undefined): AppRole | null {
+function normalizeAppRole(role: string | null | undefined): AppRole | null {
   if (typeof role !== "string") return null;
   const normalized = role.trim().toLowerCase();
   if (normalized === "viewer" || normalized === "physician" || normalized === "admin") {
@@ -53,28 +39,62 @@ function roleSatisfiesRequirement(role: AppRole, requiredRole: AppRole): boolean
   return ROLE_RANK[role] >= ROLE_RANK[requiredRole];
 }
 
+// ---------------------------------------------------------------------------
+// Route protection
+// ---------------------------------------------------------------------------
+
+const unauthenticatedPaths = ["/", "/sign-in", "/sign-up", "/callback", "/reset-password"];
+
+const routeRoleRequirements: Array<{ prefix: string; role: AppRole }> = [
+  { prefix: "/admin", role: "admin" },
+  { prefix: "/preferences", role: "physician" },
+  { prefix: "/trades", role: "physician" },
+  // Legacy routes (kept for backwards compatibility)
+  { prefix: "/fy-setup", role: "admin" },
+  { prefix: "/heatmap", role: "admin" },
+  { prefix: "/roster", role: "admin" },
+  { prefix: "/dashboard/admin", role: "admin" },
+];
+
+function isPathMatch(pathname: string, prefix: string) {
+  return pathname === prefix || pathname.startsWith(`${prefix}/`);
+}
+
+function isPublicPath(pathname: string) {
+  return unauthenticatedPaths.some((prefix) => isPathMatch(pathname, prefix));
+}
+
 function resolveSessionRole(session: Awaited<ReturnType<typeof authkit>>["session"]): AppRole | null {
   if (!session.user) return null;
 
   const highest = getHighestRole([
-    normalizeRole(session.role),
-    ...(session.roles ?? []).map((role) => normalizeRole(role)),
+    normalizeAppRole(session.role),
+    ...(session.roles ?? []).map((role) => normalizeAppRole(role)),
   ]);
 
   // New authenticated signups default to physician access.
   return highest ?? "physician";
 }
 
-async function getConvexRole(accessToken: string | undefined): Promise<AppRole | null> {
-  if (!accessToken) return null;
+let convexClient: ConvexHttpClient | null = null;
+
+function getConvexClient(): ConvexHttpClient | null {
+  if (convexClient) return convexClient;
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
   if (!convexUrl) return null;
+  convexClient = new ConvexHttpClient(convexUrl);
+  return convexClient;
+}
+
+async function getConvexRole(accessToken: string | undefined): Promise<AppRole | null> {
+  if (!accessToken) return null;
+  const client = getConvexClient();
+  if (!client) return null;
 
   try {
-    const client = new ConvexHttpClient(convexUrl);
     client.setAuth(accessToken);
     const user = await client.query(api.auth.loggedInUser, {});
-    return normalizeRole(user?.role ?? null);
+    return normalizeAppRole(user?.role ?? null);
   } catch {
     return null;
   }
@@ -86,7 +106,7 @@ function getRequiredRole(pathname: string): AppRole | null {
       .filter((entry) => isPathMatch(pathname, entry.prefix))
       .reduce<AppRole | null>((highest, entry) => {
         if (!highest) return entry.role;
-        return ROLE_RANK[entry.role] > ROLE_RANK[highest] ? entry.role : highest;
+        return roleSatisfiesRequirement(entry.role, highest) ? entry.role : highest;
       }, null)
   );
 }
@@ -118,7 +138,7 @@ export default async function middleware(request: NextRequest) {
       resolveSessionRole(session);
 
     if (!resolvedRole || !roleSatisfiesRequirement(resolvedRole, requiredRole)) {
-      return handleAuthkitHeaders(request, headers, { redirect: "/dashboard?forbidden=1" });
+      return handleAuthkitHeaders(request, headers, { redirect: "/calendar?forbidden=1" });
     }
   }
 
