@@ -9,6 +9,7 @@
  */
 
 import type * as auth from "../auth.js";
+import type * as functions_cfteTargets from "../functions/cfteTargets.js";
 import type * as functions_clinicTypes from "../functions/clinicTypes.js";
 import type * as functions_fiscalYears from "../functions/fiscalYears.js";
 import type * as functions_physicians from "../functions/physicians.js";
@@ -18,6 +19,7 @@ import type * as functions_tradeRequests from "../functions/tradeRequests.js";
 import type * as http from "../http.js";
 import type * as lib_auth from "../lib/auth.js";
 import type * as lib_cfte from "../lib/cfte.js";
+import type * as lib_cfteTargets from "../lib/cfteTargets.js";
 import type * as lib_clinicTypes from "../lib/clinicTypes.js";
 import type * as lib_workflowPolicy from "../lib/workflowPolicy.js";
 import type * as router from "../router.js";
@@ -30,6 +32,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   auth: typeof auth;
+  "functions/cfteTargets": typeof functions_cfteTargets;
   "functions/clinicTypes": typeof functions_clinicTypes;
   "functions/fiscalYears": typeof functions_fiscalYears;
   "functions/physicians": typeof functions_physicians;
@@ -39,6 +42,7 @@ declare const fullApi: ApiFromModules<{
   http: typeof http;
   "lib/auth": typeof lib_auth;
   "lib/cfte": typeof lib_cfte;
+  "lib/cfteTargets": typeof lib_cfteTargets;
   "lib/clinicTypes": typeof lib_clinicTypes;
   "lib/workflowPolicy": typeof lib_workflowPolicy;
   router: typeof router;

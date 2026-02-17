@@ -75,7 +75,9 @@ function Content() {
 }
 
 function Dashboard() {
-  const [adminPage, setAdminPage] = useState<"overview" | "rotations" | "clinicTypes">("overview");
+  const [adminPage, setAdminPage] = useState<
+    "overview" | "rotations" | "clinicTypes" | "cfteTargets"
+  >("overview");
   const myProfile = useQuery(api.functions.physicians.getMyProfile);
   const physicianCount = useQuery(api.functions.physicians.getPhysicianCount);
   const linkCurrentUser = useMutation(api.functions.physicians.linkCurrentUserToPhysicianByEmail);
@@ -120,6 +122,10 @@ function Dashboard() {
     api.functions.clinicTypes.getCurrentFiscalYearClinicTypes,
     myProfile?.role === "admin" ? {} : "skip",
   );
+  const adminCfteTargetsBundle = useQuery(
+    api.functions.cfteTargets.getCurrentFiscalYearCfteTargets,
+    myProfile?.role === "admin" ? {} : "skip",
+  );
 
   if (
     myProfile === undefined ||
@@ -133,6 +139,7 @@ function Dashboard() {
     myTrades === undefined ||
     (myProfile?.role === "admin" && adminRotationsBundle === undefined) ||
     (myProfile?.role === "admin" && adminClinicTypesBundle === undefined) ||
+    (myProfile?.role === "admin" && adminCfteTargetsBundle === undefined) ||
     (myProfile?.role === "admin" && adminRequestBundle === undefined) ||
     (myProfile?.role === "admin" && adminTradeQueue === undefined)
   ) {
@@ -148,6 +155,7 @@ function Dashboard() {
 
   const showAdminRotationsPage = myProfile.role === "admin" && adminPage === "rotations";
   const showAdminClinicTypesPage = myProfile.role === "admin" && adminPage === "clinicTypes";
+  const showAdminCfteTargetsPage = myProfile.role === "admin" && adminPage === "cfteTargets";
 
   return (
     <div className="space-y-6">
@@ -171,6 +179,12 @@ function Dashboard() {
           >
             Clinic Types
           </button>
+          <button
+            className={`px-3 py-2 text-sm rounded ${adminPage === "cfteTargets" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}
+            onClick={() => setAdminPage("cfteTargets")}
+          >
+            cFTE Targets
+          </button>
         </div>
       ) : null}
 
@@ -178,6 +192,8 @@ function Dashboard() {
         <AdminRotationsPage bundle={adminRotationsBundle} />
       ) : showAdminClinicTypesPage ? (
         <AdminClinicTypesPage bundle={adminClinicTypesBundle} />
+      ) : showAdminCfteTargetsPage ? (
+        <AdminCfteTargetsPage bundle={adminCfteTargetsBundle} />
       ) : (
         <>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -563,6 +579,153 @@ function AdminClinicTypesPage({ bundle }: { bundle: any }) {
                       >
                         {clinicType.isActive ? "Deactivate" : "Activate"}
                       </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AdminCfteTargetsPage({ bundle }: { bundle: any }) {
+  const upsertTarget = useMutation(api.functions.cfteTargets.upsertCurrentFiscalYearCfteTarget);
+  const [draftTargets, setDraftTargets] = useState<Record<string, string>>({});
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    if (!bundle?.targets) return;
+    const next: Record<string, string> = {};
+    for (const row of bundle.targets) {
+      next[String(row.physicianId)] = row.targetCfte === null ? "" : String(row.targetCfte);
+    }
+    setDraftTargets(next);
+  }, [bundle?.fiscalYear?._id, bundle?.targets]);
+
+  if (!bundle?.fiscalYear) {
+    return (
+      <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
+        <h3 className="text-lg font-semibold mb-2">cFTE Targets</h3>
+        <p className="text-sm text-gray-600">No active fiscal year found. Create/activate a fiscal year first.</p>
+      </div>
+    );
+  }
+
+  const changedRows = (bundle.targets ?? []).filter((row: any) => {
+    const draft = draftTargets[String(row.physicianId)] ?? "";
+    const current = row.targetCfte === null ? "" : String(row.targetCfte);
+    return draft !== current;
+  });
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="text-lg font-semibold">Physician cFTE Targets</h3>
+            <p className="text-sm text-gray-600">
+              {bundle.fiscalYear.label} ({bundle.fiscalYear.status}) - set annual target cFTE by physician
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                const next = { ...draftTargets };
+                for (const row of bundle.targets ?? []) {
+                  next[String(row.physicianId)] = "0.60";
+                }
+                setDraftTargets(next);
+              }}
+              className="px-3 py-2 text-sm rounded bg-gray-100 text-gray-700 hover:bg-gray-200"
+              disabled={isSaving}
+            >
+              Set All 0.60
+            </button>
+            <button
+              onClick={async () => {
+                if (changedRows.length === 0) {
+                  toast.message("No cFTE target changes to save");
+                  return;
+                }
+
+                setIsSaving(true);
+                try {
+                  for (const row of changedRows) {
+                    const raw = (draftTargets[String(row.physicianId)] ?? "").trim();
+                    if (!raw) {
+                      throw new Error(`Missing target for ${row.physicianName}`);
+                    }
+                    const value = Number(raw);
+                    if (!Number.isFinite(value)) {
+                      throw new Error(`Invalid target for ${row.physicianName}`);
+                    }
+                    await upsertTarget({
+                      physicianId: row.physicianId,
+                      targetCfte: value,
+                    });
+                  }
+                  toast.success(`Saved ${changedRows.length} target(s)`);
+                } catch (error) {
+                  toast.error(error instanceof Error ? error.message : "Failed to save cFTE targets");
+                } finally {
+                  setIsSaving(false);
+                }
+              }}
+              className="px-3 py-2 text-sm rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+              disabled={isSaving}
+            >
+              {isSaving ? "Saving..." : `Save Changes (${changedRows.length})`}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
+        <div className="border border-gray-200 rounded-md overflow-hidden max-h-[560px] overflow-y-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 text-gray-600 sticky top-0">
+              <tr>
+                <th className="text-left px-3 py-2">Physician</th>
+                <th className="text-left px-3 py-2">Role</th>
+                <th className="text-left px-3 py-2">Target cFTE</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(bundle.targets ?? []).length === 0 ? (
+                <tr>
+                  <td className="px-3 py-3 text-gray-500" colSpan={3}>
+                    No active physicians found.
+                  </td>
+                </tr>
+              ) : (
+                (bundle.targets ?? []).map((row: any) => (
+                  <tr key={String(row.physicianId)} className="border-t border-gray-100">
+                    <td className="px-3 py-2">
+                      <div className="font-medium">{row.physicianName}</div>
+                      <div className="text-xs text-gray-500">{row.initials}</div>
+                    </td>
+                    <td className="px-3 py-2">
+                      <StatusBadge status={row.role} />
+                    </td>
+                    <td className="px-3 py-2">
+                      <input
+                        type="number"
+                        min="0"
+                        max="1.5"
+                        step="0.01"
+                        value={draftTargets[String(row.physicianId)] ?? ""}
+                        onChange={(e) => {
+                          setDraftTargets((prev) => ({
+                            ...prev,
+                            [String(row.physicianId)]: e.target.value,
+                          }));
+                        }}
+                        disabled={isSaving}
+                        className="w-28 rounded border border-gray-300 px-3 py-2 text-sm"
+                      />
                     </td>
                   </tr>
                 ))
