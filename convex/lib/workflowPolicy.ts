@@ -14,6 +14,19 @@ export function canEditRequestForFiscalYear(status: FiscalYearStatus): boolean {
   return status === "collecting";
 }
 
+export function canTransitionFiscalYearStatus(
+  from: FiscalYearStatus,
+  to: FiscalYearStatus,
+): boolean {
+  if (from === to) return true;
+
+  if (from === "setup") return to === "collecting";
+  if (from === "collecting") return to === "building";
+  if (from === "building") return to === "published";
+  if (from === "published") return to === "archived";
+  return false;
+}
+
 export function nextScheduleRequestStatusAfterSave(
   current: ScheduleRequestStatus,
 ): ScheduleRequestStatus {

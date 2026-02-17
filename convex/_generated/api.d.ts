@@ -16,6 +16,7 @@ import type * as functions_tradeRequests from "../functions/tradeRequests.js";
 import type * as http from "../http.js";
 import type * as lib_auth from "../lib/auth.js";
 import type * as lib_cfte from "../lib/cfte.js";
+import type * as lib_workflowPolicy from "../lib/workflowPolicy.js";
 import type * as router from "../router.js";
 
 import type {
@@ -33,6 +34,7 @@ declare const fullApi: ApiFromModules<{
   http: typeof http;
   "lib/auth": typeof lib_auth;
   "lib/cfte": typeof lib_cfte;
+  "lib/workflowPolicy": typeof lib_workflowPolicy;
   router: typeof router;
 }>;
 

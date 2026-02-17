@@ -44,6 +44,17 @@ async function getActiveTradeFiscalYear(ctx: AnyCtx) {
     .first();
 }
 
+async function requirePublishedTradeWindow(
+  ctx: AnyCtx,
+  fiscalYearId: Doc<"fiscalYears">["_id"],
+) {
+  const fiscalYear = await ctx.db.get(fiscalYearId);
+  if (!fiscalYear || !canProposeTradeForFiscalYear(fiscalYear.status)) {
+    throw new Error("Trades can only be processed while fiscal year is published");
+  }
+  return fiscalYear;
+}
+
 async function getPublishedMasterCalendar(ctx: AnyCtx, fiscalYearId: Doc<"fiscalYears">["_id"]) {
   const calendars = await ctx.db
     .query("masterCalendars")
@@ -362,6 +373,7 @@ export const respondToTrade = mutation({
     const trade = await ctx.db.get(args.tradeRequestId);
 
     if (!trade) throw new Error("Trade request not found");
+    await requirePublishedTradeWindow(ctx, trade.fiscalYearId);
     if (
       !canTargetRespondToTrade({
         actorPhysicianId: String(physician._id),
@@ -390,6 +402,7 @@ export const cancelTrade = mutation({
     const trade = await ctx.db.get(args.tradeRequestId);
 
     if (!trade) throw new Error("Trade request not found");
+    await requirePublishedTradeWindow(ctx, trade.fiscalYearId);
     if (
       !canRequesterCancelTrade({
         actorPhysicianId: String(physician._id),
@@ -420,6 +433,7 @@ export const adminResolveTrade = mutation({
     const trade = await ctx.db.get(args.tradeRequestId);
 
     if (!trade) throw new Error("Trade request not found");
+    await requirePublishedTradeWindow(ctx, trade.fiscalYearId);
     if (!canAdminDenyTrade(trade.status)) {
       throw new Error("Trade is not in an admin-resolvable state");
     }

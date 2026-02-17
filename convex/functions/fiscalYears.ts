@@ -1,6 +1,15 @@
 import { query, mutation } from "../_generated/server";
 import { v } from "convex/values";
 import { getCurrentPhysician, requireAdmin } from "../lib/auth";
+import { canTransitionFiscalYearStatus, FiscalYearStatus } from "../lib/workflowPolicy";
+
+const fiscalYearStatusValidator = v.union(
+  v.literal("setup"),
+  v.literal("collecting"),
+  v.literal("building"),
+  v.literal("published"),
+  v.literal("archived"),
+);
 
 export const getFiscalYears = query({
   args: {},
@@ -170,5 +179,30 @@ export const seedFY27 = mutation({
     }
 
     return { message: "FY27 created with 52 weeks" };
+  },
+});
+
+export const updateFiscalYearStatus = mutation({
+  args: {
+    fiscalYearId: v.id("fiscalYears"),
+    status: fiscalYearStatusValidator,
+  },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+
+    const fiscalYear = await ctx.db.get(args.fiscalYearId);
+    if (!fiscalYear) throw new Error("Fiscal year not found");
+
+    if (
+      !canTransitionFiscalYearStatus(
+        fiscalYear.status as FiscalYearStatus,
+        args.status as FiscalYearStatus,
+      )
+    ) {
+      throw new Error(`Invalid transition: ${fiscalYear.status} -> ${args.status}`);
+    }
+
+    await ctx.db.patch(fiscalYear._id, { status: args.status });
+    return { message: `${fiscalYear.label} moved to ${args.status}` };
   },
 });

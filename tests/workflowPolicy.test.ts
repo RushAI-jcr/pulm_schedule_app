@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  canTransitionFiscalYearStatus,
   canAdminApproveTrade,
   canAdminDenyTrade,
   canEditRequestForFiscalYear,
@@ -23,6 +24,18 @@ describe("schedule request lifecycle policy", () => {
     expect(nextScheduleRequestStatusAfterSave("draft")).toBe("draft");
     expect(nextScheduleRequestStatusAfterSave("submitted")).toBe("revised");
     expect(nextScheduleRequestStatusAfterSave("revised")).toBe("revised");
+  });
+
+  it("allows only forward fiscal-year lifecycle transitions", () => {
+    expect(canTransitionFiscalYearStatus("setup", "collecting")).toBe(true);
+    expect(canTransitionFiscalYearStatus("collecting", "building")).toBe(true);
+    expect(canTransitionFiscalYearStatus("building", "published")).toBe(true);
+    expect(canTransitionFiscalYearStatus("published", "archived")).toBe(true);
+
+    expect(canTransitionFiscalYearStatus("setup", "published")).toBe(false);
+    expect(canTransitionFiscalYearStatus("collecting", "setup")).toBe(false);
+    expect(canTransitionFiscalYearStatus("published", "building")).toBe(false);
+    expect(canTransitionFiscalYearStatus("archived", "published")).toBe(false);
   });
 });
 

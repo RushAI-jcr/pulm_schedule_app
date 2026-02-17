@@ -155,7 +155,7 @@ function Dashboard() {
         <div className="xl:col-span-2 space-y-6">
           {myProfile.role === "admin" ? <AdminRequestQueue adminRequestBundle={adminRequestBundle!} /> : null}
           {myProfile.role === "admin" ? <AdminTradeQueue trades={adminTradeQueue ?? []} /> : null}
-          <AdminActions isAdmin={myProfile.role === "admin"} />
+          <AdminActions isAdmin={myProfile.role === "admin"} currentFY={currentFY} />
         </div>
       </div>
     </div>
@@ -870,7 +870,27 @@ function BootstrapSetup() {
   );
 }
 
-function AdminActions({ isAdmin }: { isAdmin: boolean }) {
+function AdminActions({ isAdmin, currentFY }: { isAdmin: boolean; currentFY: any }) {
+  const updateFiscalYearStatus = useMutation(api.functions.fiscalYears.updateFiscalYearStatus);
+  const [targetStatus, setTargetStatus] = useState<string>("");
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+
+  const nextStatusByCurrent: Record<string, string | undefined> = {
+    setup: "collecting",
+    collecting: "building",
+    building: "published",
+    published: "archived",
+    archived: undefined,
+  };
+
+  useEffect(() => {
+    if (!currentFY) {
+      setTargetStatus("");
+      return;
+    }
+    setTargetStatus(nextStatusByCurrent[currentFY.status] ?? currentFY.status);
+  }, [currentFY?._id, currentFY?.status]);
+
   if (!isAdmin) {
     return (
       <div className="bg-white p-6 rounded-lg shadow border border-gray-200">
@@ -881,8 +901,60 @@ function AdminActions({ isAdmin }: { isAdmin: boolean }) {
   }
 
   return (
-    <div className="bg-white p-6 rounded-lg shadow border border-gray-200">
+    <div className="bg-white p-6 rounded-lg shadow border border-gray-200 space-y-5">
       <h3 className="text-lg font-semibold mb-4">Admin Actions</h3>
+
+      <div className="border border-gray-200 rounded-md p-4 space-y-3">
+        <h4 className="font-medium text-sm">Fiscal Year Status</h4>
+        {!currentFY ? (
+          <p className="text-sm text-gray-600">No active fiscal year found.</p>
+        ) : (
+          <>
+            <p className="text-sm text-gray-700">
+              <span className="text-gray-500">Current:</span> {currentFY.label} <StatusBadge status={currentFY.status} />
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <select
+                className="rounded border border-gray-300 px-3 py-2 text-sm"
+                value={targetStatus}
+                onChange={(e) => setTargetStatus(e.target.value)}
+                disabled={isUpdatingStatus}
+              >
+                <option value={currentFY.status}>{currentFY.status}</option>
+                {nextStatusByCurrent[currentFY.status] ? (
+                  <option value={nextStatusByCurrent[currentFY.status]}>
+                    {nextStatusByCurrent[currentFY.status]}
+                  </option>
+                ) : null}
+              </select>
+              <button
+                onClick={async () => {
+                  if (!currentFY || !targetStatus || targetStatus === currentFY.status) {
+                    return;
+                  }
+                  setIsUpdatingStatus(true);
+                  try {
+                    const result = await updateFiscalYearStatus({
+                      fiscalYearId: currentFY._id,
+                      status: targetStatus as any,
+                    });
+                    toast.success(result.message);
+                  } catch (error) {
+                    toast.error(error instanceof Error ? error.message : "Failed to update fiscal year status");
+                  } finally {
+                    setIsUpdatingStatus(false);
+                  }
+                }}
+                disabled={!currentFY || !targetStatus || targetStatus === currentFY.status || isUpdatingStatus}
+                className="px-3 py-2 text-sm rounded bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
+              >
+                {isUpdatingStatus ? "Updating..." : "Update Status"}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <SeedButton
           mutation={api.functions.physicians.seedPhysicians}
