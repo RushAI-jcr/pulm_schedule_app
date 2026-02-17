@@ -1,3 +1,5 @@
+"use client";
+
 import { Authenticated, Unauthenticated, useMutation, useQuery } from "convex/react";
 import { api } from "../convex/_generated/api";
 import { SignInForm } from "./SignInForm";
@@ -790,7 +792,7 @@ function AdminClinicAssignmentsPage({ bundle }: { bundle: any }) {
 
   useEffect(() => {
     if (!bundle?.physicians || !bundle?.clinicTypes) return;
-    const assignmentByKey = new Map(
+    const assignmentByKey = new Map<string, any>(
       (bundle.assignments ?? []).map((assignment: any) => [
         `${String(assignment.physicianId)}:${String(assignment.clinicTypeId)}`,
         assignment,
@@ -820,7 +822,7 @@ function AdminClinicAssignmentsPage({ bundle }: { bundle: any }) {
     );
   }
 
-  const assignmentByKey = new Map(
+  const assignmentByKey = new Map<string, any>(
     (bundle.assignments ?? []).map((assignment: any) => [
       `${String(assignment.physicianId)}:${String(assignment.clinicTypeId)}`,
       assignment,

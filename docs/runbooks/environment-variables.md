@@ -2,21 +2,28 @@
 
 ## Local development
 
-- `VITE_CONVEX_URL`: local/dev Convex URL
+- `NEXT_PUBLIC_CONVEX_URL`: local/dev Convex URL
 - `CONVEX_SITE_URL`: Convex site URL for auth routing
+- `AUTH_WORKOS_ID`: WorkOS client ID for Convex Auth
+- `AUTH_WORKOS_SECRET`: WorkOS client secret for Convex Auth
+- `AUTH_WORKOS_ISSUER`: WorkOS issuer URL (default `https://api.workos.com/`)
+- `AUTH_WORKOS_CONNECTION` (optional): fixed WorkOS connection ID
+- `NEXT_PUBLIC_WORKOS_CONNECTION` (optional): same connection on client sign-in form
 - `SENTRY_DSN` (optional): local error capture
 
 ## Preview / staging
 
 - `CONVEX_DEPLOY_KEY`: preview deploy key (preview environment only)
-- `VITE_CONVEX_URL`: set by deployment pipeline for preview backend
+- `NEXT_PUBLIC_CONVEX_URL`: set by deployment pipeline for preview backend
 - `SENTRY_DSN`: staging DSN (if used)
 
 ## Production
 
 - `CONVEX_DEPLOY_KEY`: production deploy key
-- `VITE_CONVEX_URL`: production Convex URL
+- `NEXT_PUBLIC_CONVEX_URL`: production Convex URL
 - `CONVEX_SITE_URL`: production site URL
+- `AUTH_WORKOS_ID`: production WorkOS client ID
+- `AUTH_WORKOS_SECRET`: production WorkOS client secret
 - `SENTRY_DSN`: production DSN
 
 ## Policy

@@ -5,10 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "npm-run-all --parallel dev:frontend dev:backend",
-    "dev:frontend": "vite --open",
+    "dev:frontend": "next dev",
     "dev:backend": "convex dev",
-    "build": "vite build",
-    "lint": "tsc -p convex -noEmit --pretty false && tsc -p . -noEmit --pretty false && vite build",
+    "build": "next build",
+    "start": "next start",
+    "lint": "tsc -p convex -noEmit --pretty false && tsc -p . -noEmit --pretty false && next build",
     "lint:convex": "convex dev --once",
     "test:authz": "bash scripts/verify-auth-guards.sh",
     "test": "vitest run"
@@ -17,6 +18,7 @@
     "@convex-dev/auth": "^0.0.80",
     "clsx": "^2.1.1",
     "convex": "^1.31.2",
+    "next": "^15.5.4",
     "react": "^19.2.1",
     "react-dom": "^19.2.1",
     "react-dropzone": "^15.0.0",
@@ -29,7 +31,6 @@
     "@types/node": "^22.13.10",
     "@types/react": "^19.0.10",
     "@types/react-dom": "^19.0.4",
-    "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "~10",
     "dotenv": "^16.4.7",
     "eslint": "^9.21.0",
@@ -42,7 +43,6 @@
     "tailwindcss": "~3",
     "typescript": "~5.7.2",
     "typescript-eslint": "^8.24.1",
-    "vite": "^6.2.0",
     "vitest": "^4.0.18"
   }
 }

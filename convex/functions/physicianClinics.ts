@@ -2,32 +2,11 @@ import { mutation, query } from "../_generated/server";
 import { v } from "convex/values";
 import { requireAdmin } from "../lib/auth";
 import { isValidActiveWeeks, isValidHalfDaysPerWeek } from "../lib/physicianClinics";
+import { getSingleActiveFiscalYear } from "../lib/fiscalYear";
 
 async function getCurrentFiscalYearForAdmin(ctx: any) {
   await requireAdmin(ctx);
-
-  const collecting = await ctx.db
-    .query("fiscalYears")
-    .withIndex("by_status", (q: any) => q.eq("status", "collecting"))
-    .first();
-  if (collecting) return collecting;
-
-  const setup = await ctx.db
-    .query("fiscalYears")
-    .withIndex("by_status", (q: any) => q.eq("status", "setup"))
-    .first();
-  if (setup) return setup;
-
-  const building = await ctx.db
-    .query("fiscalYears")
-    .withIndex("by_status", (q: any) => q.eq("status", "building"))
-    .first();
-  if (building) return building;
-
-  return await ctx.db
-    .query("fiscalYears")
-    .withIndex("by_status", (q: any) => q.eq("status", "published"))
-    .first();
+  return await getSingleActiveFiscalYear(ctx);
 }
 
 export const getCurrentFiscalYearPhysicianClinics = query({
@@ -106,14 +85,15 @@ export const upsertPhysicianClinicAssignment = mutation({
       throw new Error("Clinic type not found for current fiscal year");
     }
 
-    const byPhysician = await ctx.db
+    const existing = await ctx.db
       .query("physicianClinics")
-      .withIndex("by_physician_fy", (q) =>
-        q.eq("physicianId", args.physicianId).eq("fiscalYearId", fiscalYear._id),
+      .withIndex("by_physician_fy_clinic", (q) =>
+        q
+          .eq("physicianId", args.physicianId)
+          .eq("fiscalYearId", fiscalYear._id)
+          .eq("clinicTypeId", args.clinicTypeId),
       )
-      .collect();
-
-    const existing = byPhysician.find((assignment) => assignment.clinicTypeId === args.clinicTypeId);
+      .first();
     if (existing) {
       await ctx.db.patch(existing._id, {
         halfDaysPerWeek: args.halfDaysPerWeek,
@@ -143,14 +123,15 @@ export const removePhysicianClinicAssignment = mutation({
     const fiscalYear = await getCurrentFiscalYearForAdmin(ctx);
     if (!fiscalYear) throw new Error("No active fiscal year available");
 
-    const byPhysician = await ctx.db
+    const existing = await ctx.db
       .query("physicianClinics")
-      .withIndex("by_physician_fy", (q) =>
-        q.eq("physicianId", args.physicianId).eq("fiscalYearId", fiscalYear._id),
+      .withIndex("by_physician_fy_clinic", (q) =>
+        q
+          .eq("physicianId", args.physicianId)
+          .eq("fiscalYearId", fiscalYear._id)
+          .eq("clinicTypeId", args.clinicTypeId),
       )
-      .collect();
-
-    const existing = byPhysician.find((assignment) => assignment.clinicTypeId === args.clinicTypeId);
+      .first();
     if (!existing) {
       return { message: "No clinic assignment to remove" };
     }

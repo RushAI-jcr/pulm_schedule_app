@@ -6,6 +6,14 @@ function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
+function normalizeName(value: string): string {
+  return value.trim();
+}
+
+function normalizeInitials(initials: string): string {
+  return initials.trim().toUpperCase();
+}
+
 export const getPhysicianCount = query({
   args: {},
   handler: async (ctx) => {
@@ -22,17 +30,25 @@ export const getMyProfile = query({
     const byUserId = await ctx.db
       .query("physicians")
       .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
-      .unique();
+      .collect();
 
-    if (byUserId) return byUserId;
+    if (byUserId.length > 1) {
+      throw new Error("Data integrity error: duplicate physician linkage for current user");
+    }
+    if (byUserId.length === 1) return byUserId[0];
 
     const email = identity.email;
     if (!email) return null;
 
-    return await ctx.db
+    const byEmail = await ctx.db
       .query("physicians")
       .withIndex("by_email", (q) => q.eq("email", normalizeEmail(email)))
-      .unique();
+      .collect();
+
+    if (byEmail.length > 1) {
+      throw new Error("Data integrity error: duplicate physician records for email");
+    }
+    return byEmail[0] ?? null;
   },
 });
 
@@ -44,16 +60,35 @@ export const linkCurrentUserToPhysicianByEmail = mutation({
     if (!identity.email) {
       throw new Error("Signed-in account must have an email");
     }
-
     const email = normalizeEmail(identity.email);
-    const physician = await ctx.db
+
+    const byUserId = await ctx.db
+      .query("physicians")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .collect();
+    if (byUserId.length > 1) {
+      throw new Error("Data integrity error: duplicate physician linkage for current user");
+    }
+    if (byUserId.length === 1 && normalizeEmail(byUserId[0].email) !== email) {
+      throw new Error("Signed-in account already linked to another physician");
+    }
+
+    const byEmail = await ctx.db
       .query("physicians")
       .withIndex("by_email", (q) => q.eq("email", email))
-      .unique();
+      .collect();
+
+    if (byEmail.length > 1) {
+      throw new Error("Data integrity error: duplicate physician records for email");
+    }
+    const physician = byEmail[0];
 
     if (!physician) throw new Error("No physician record matches this email");
     if (physician.userId && physician.userId !== identity.subject) {
       throw new Error("Physician record already linked to another account");
+    }
+    if (!physician.isActive) {
+      throw new Error("Physician record is inactive");
     }
 
     if (physician.userId !== identity.subject) {
@@ -68,7 +103,13 @@ export const getPhysicians = query({
   args: {},
   handler: async (ctx) => {
     await getCurrentPhysician(ctx);
-    return await ctx.db.query("physicians").collect();
+    const physicians = await ctx.db.query("physicians").collect();
+    physicians.sort((a, b) => {
+      const byLast = a.lastName.localeCompare(b.lastName);
+      if (byLast !== 0) return byLast;
+      return a.firstName.localeCompare(b.firstName);
+    });
+    return physicians;
   },
 });
 
@@ -93,10 +134,34 @@ export const createPhysician = mutation({
   },
   handler: async (ctx, args) => {
     await requireAdmin(ctx);
-    
+
+    const firstName = normalizeName(args.firstName);
+    const lastName = normalizeName(args.lastName);
+    const initials = normalizeInitials(args.initials);
+    const email = normalizeEmail(args.email);
+
+    if (!firstName || !lastName || !initials || !email) {
+      throw new Error("First name, last name, initials, and email are required");
+    }
+
+    const existingByEmail = await ctx.db
+      .query("physicians")
+      .withIndex("by_email", (q) => q.eq("email", email))
+      .collect();
+    if (existingByEmail.length > 0) throw new Error("A physician with this email already exists");
+
+    const existingByInitials = await ctx.db
+      .query("physicians")
+      .withIndex("by_initials", (q) => q.eq("initials", initials))
+      .collect();
+    if (existingByInitials.length > 0) throw new Error("A physician with these initials already exists");
+
     return await ctx.db.insert("physicians", {
-      ...args,
-      email: normalizeEmail(args.email),
+      firstName,
+      lastName,
+      initials,
+      email,
+      role: args.role,
       isActive: true,
     });
   },
@@ -114,11 +179,42 @@ export const updatePhysician = mutation({
   },
   handler: async (ctx, args) => {
     await requireAdmin(ctx);
-    
+
     const { physicianId, ...updates } = args;
+    const existing = await ctx.db.get(physicianId);
+    if (!existing) throw new Error("Physician not found");
+
+    const normalizedInitials = updates.initials ? normalizeInitials(updates.initials) : undefined;
+    const normalizedEmail = updates.email ? normalizeEmail(updates.email) : undefined;
+    const normalizedFirstName = updates.firstName ? normalizeName(updates.firstName) : undefined;
+    const normalizedLastName = updates.lastName ? normalizeName(updates.lastName) : undefined;
+
+    if (normalizedEmail) {
+      const byEmail = await ctx.db
+        .query("physicians")
+        .withIndex("by_email", (q) => q.eq("email", normalizedEmail))
+        .collect();
+      if (byEmail.some((row) => row._id !== physicianId)) {
+        throw new Error("A physician with this email already exists");
+      }
+    }
+
+    if (normalizedInitials) {
+      const byInitials = await ctx.db
+        .query("physicians")
+        .withIndex("by_initials", (q) => q.eq("initials", normalizedInitials))
+        .collect();
+      if (byInitials.some((row) => row._id !== physicianId)) {
+        throw new Error("A physician with these initials already exists");
+      }
+    }
+
     await ctx.db.patch(physicianId, {
       ...updates,
-      ...(updates.email ? { email: normalizeEmail(updates.email) } : {}),
+      ...(normalizedFirstName ? { firstName: normalizedFirstName } : {}),
+      ...(normalizedLastName ? { lastName: normalizedLastName } : {}),
+      ...(normalizedInitials ? { initials: normalizedInitials } : {}),
+      ...(normalizedEmail ? { email: normalizedEmail } : {}),
     });
   },
 });

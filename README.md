@@ -1,6 +1,6 @@
 # Pulm Schedule App
 
-Physician clinical scheduling application built with React + Vite (frontend) and Convex (backend).
+Physician clinical scheduling application built with Next.js (frontend) and Convex (backend).
 
 ## Quick start
 
@@ -34,7 +34,7 @@ The app supports annual physician scheduling workflows:
 
 ## Authentication
 
-Authentication uses Convex Auth. Production flow is email/password and physician profile linkage by email.
+Authentication uses Convex Auth with WorkOS SSO and physician profile linkage by email.
 
 ## Docs
 

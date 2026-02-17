@@ -2,6 +2,13 @@ import { query, mutation } from "../_generated/server";
 import { v } from "convex/values";
 import { getCurrentPhysician, requireAdmin } from "../lib/auth";
 import { canTransitionFiscalYearStatus, FiscalYearStatus } from "../lib/workflowPolicy";
+import {
+  ACTIVE_FISCAL_YEAR_STATUSES,
+  ensureCanActivateFiscalYear,
+  ensureNoActiveFiscalYear,
+  getSingleActiveFiscalYear,
+  parseRequestDeadlineMs,
+} from "../lib/fiscalYear";
 
 const fiscalYearStatusValidator = v.union(
   v.literal("setup"),
@@ -23,22 +30,7 @@ export const getCurrentFiscalYear = query({
   args: {},
   handler: async (ctx) => {
     await getCurrentPhysician(ctx);
-    return await ctx.db
-      .query("fiscalYears")
-      .withIndex("by_status", (q) => q.eq("status", "collecting"))
-      .first() ||
-      await ctx.db
-        .query("fiscalYears")
-        .withIndex("by_status", (q) => q.eq("status", "setup"))
-        .first() ||
-      await ctx.db
-        .query("fiscalYears")
-        .withIndex("by_status", (q) => q.eq("status", "building"))
-        .first() ||
-      await ctx.db
-        .query("fiscalYears")
-        .withIndex("by_status", (q) => q.eq("status", "published"))
-        .first();
+    return await getSingleActiveFiscalYear(ctx);
   },
 });
 
@@ -50,9 +42,22 @@ export const createFiscalYear = mutation({
   },
   handler: async (ctx, args) => {
     await requireAdmin(ctx);
-    
+    const label = args.label.trim().toUpperCase();
+    if (!label) throw new Error("Fiscal year label is required");
+
+    const existingLabel = await ctx.db
+      .query("fiscalYears")
+      .withIndex("by_label", (q) => q.eq("label", label))
+      .collect();
+    if (existingLabel.length > 0) {
+      throw new Error(`Fiscal year label ${label} already exists`);
+    }
+
+    await ensureNoActiveFiscalYear(ctx);
+
     const fiscalYearId = await ctx.db.insert("fiscalYears", {
       ...args,
+      label,
       status: "setup",
     });
 
@@ -98,13 +103,15 @@ export const seedFY27 = mutation({
   args: {},
   handler: async (ctx) => {
     await requireAdmin(ctx);
-    
+
     // Check if FY27 already exists
-    const existing = (await ctx.db.query("fiscalYears").collect()).find(
-      (fy) => fy.label === "FY27",
-    );
-    
-    if (existing) return { message: "FY27 already exists" };
+    const existingByLabel = await ctx.db
+      .query("fiscalYears")
+      .withIndex("by_label", (q) => q.eq("label", "FY27"))
+      .collect();
+    if (existingByLabel.length > 0) return { message: "FY27 already exists" };
+
+    await ensureNoActiveFiscalYear(ctx);
 
     const fiscalYearId = await ctx.db.insert("fiscalYears", {
       label: "FY27",
@@ -202,7 +209,38 @@ export const updateFiscalYearStatus = mutation({
       throw new Error(`Invalid transition: ${fiscalYear.status} -> ${args.status}`);
     }
 
+    if (ACTIVE_FISCAL_YEAR_STATUSES.includes(args.status as any)) {
+      await ensureCanActivateFiscalYear(ctx, fiscalYear._id);
+    }
+
     await ctx.db.patch(fiscalYear._id, { status: args.status });
     return { message: `${fiscalYear.label} moved to ${args.status}` };
+  },
+});
+
+export const setFiscalYearRequestDeadline = mutation({
+  args: {
+    fiscalYearId: v.id("fiscalYears"),
+    requestDeadline: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+
+    const fiscalYear = await ctx.db.get(args.fiscalYearId);
+    if (!fiscalYear) throw new Error("Fiscal year not found");
+
+    if (args.requestDeadline) {
+      parseRequestDeadlineMs({ requestDeadline: args.requestDeadline });
+    }
+
+    await ctx.db.patch(fiscalYear._id, {
+      requestDeadline: args.requestDeadline,
+    });
+
+    return {
+      message: args.requestDeadline
+        ? `Request deadline set for ${fiscalYear.label}`
+        : `Request deadline cleared for ${fiscalYear.label}`,
+    };
   },
 });

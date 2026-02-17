@@ -1,10 +1,16 @@
 import { convexAuth, getAuthUserId } from "@convex-dev/auth/server";
-import { Password } from "@convex-dev/auth/providers/Password";
-import { Anonymous } from "@convex-dev/auth/providers/Anonymous";
+import WorkOS from "@auth/core/providers/workos";
 import { query } from "./_generated/server";
 
 export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
-  providers: [Password, Anonymous],
+  providers: [
+    WorkOS({
+      issuer: process.env.AUTH_WORKOS_ISSUER ?? "https://api.workos.com/",
+      ...(process.env.AUTH_WORKOS_CONNECTION
+        ? { connection: process.env.AUTH_WORKOS_CONNECTION }
+        : {}),
+    }),
+  ],
 });
 
 export const loggedInUser = query({

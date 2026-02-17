@@ -36,7 +36,8 @@ const applicationTables = {
     ),
     requestDeadline: v.optional(v.string()), // ISO datetime
   })
-    .index("by_status", ["status"]),
+    .index("by_status", ["status"])
+    .index("by_label", ["label"]),
 
   weeks: defineTable({
     fiscalYearId: v.id("fiscalYears"),
@@ -74,7 +75,8 @@ const applicationTables = {
   })
     .index("by_fiscalYear", ["fiscalYearId"])
     .index("by_week", ["weekId"])
-    .index("by_fiscalYear_approved", ["fiscalYearId", "isApproved"]),
+    .index("by_fiscalYear_approved", ["fiscalYearId", "isApproved"])
+    .index("by_fiscalYear_date", ["fiscalYearId", "date"]),
 
   // ========================================
   // TRADE/SWAP REQUESTS (Mid-year changes)
@@ -104,6 +106,7 @@ const applicationTables = {
     resolvedAt: v.optional(v.number()),
   })
     .index("by_fiscalYear", ["fiscalYearId"])
+    .index("by_fiscalYear_status", ["fiscalYearId", "status"])
     .index("by_requesting_physician", ["requestingPhysicianId"])
     .index("by_target_physician", ["targetPhysicianId"])
     .index("by_status", ["status"]),
@@ -144,6 +147,7 @@ const applicationTables = {
     activeWeeks: v.number(), // e.g., 42 (weeks they hold clinic)
   })
     .index("by_physician_fy", ["physicianId", "fiscalYearId"])
+    .index("by_physician_fy_clinic", ["physicianId", "fiscalYearId", "clinicTypeId"])
     .index("by_fiscalYear", ["fiscalYearId"]),
 
   // Per-physician cFTE target (Admin-set)
@@ -193,6 +197,7 @@ const applicationTables = {
     reasonText: v.optional(v.string()), // e.g., conference name, holiday name
   })
     .index("by_request", ["scheduleRequestId"])
+    .index("by_request_week", ["scheduleRequestId", "weekId"])
     .index("by_week", ["weekId"]),
 
   rotationPreferences: defineTable({
@@ -202,7 +207,8 @@ const applicationTables = {
     avoid: v.boolean(), // true = physician wants to avoid this rotation
     avoidReason: v.optional(v.string()),
   })
-    .index("by_request", ["scheduleRequestId"]),
+    .index("by_request", ["scheduleRequestId"])
+    .index("by_request_rotation", ["scheduleRequestId", "rotationId"]),
 
   // ========================================
   // MASTER CALENDAR (Admin-built)

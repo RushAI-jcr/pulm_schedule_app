@@ -2,32 +2,11 @@ import { mutation, query } from "../_generated/server";
 import { v } from "convex/values";
 import { requireAdmin } from "../lib/auth";
 import { isValidTargetCfte } from "../lib/cfteTargets";
+import { getSingleActiveFiscalYear } from "../lib/fiscalYear";
 
 async function getCurrentFiscalYearForAdmin(ctx: any) {
   await requireAdmin(ctx);
-
-  const collecting = await ctx.db
-    .query("fiscalYears")
-    .withIndex("by_status", (q: any) => q.eq("status", "collecting"))
-    .first();
-  if (collecting) return collecting;
-
-  const setup = await ctx.db
-    .query("fiscalYears")
-    .withIndex("by_status", (q: any) => q.eq("status", "setup"))
-    .first();
-  if (setup) return setup;
-
-  const building = await ctx.db
-    .query("fiscalYears")
-    .withIndex("by_status", (q: any) => q.eq("status", "building"))
-    .first();
-  if (building) return building;
-
-  return await ctx.db
-    .query("fiscalYears")
-    .withIndex("by_status", (q: any) => q.eq("status", "published"))
-    .first();
+  return await getSingleActiveFiscalYear(ctx);
 }
 
 export const getCurrentFiscalYearCfteTargets = query({

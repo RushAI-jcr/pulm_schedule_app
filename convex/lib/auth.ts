@@ -10,25 +10,35 @@ export async function getCurrentPhysician(ctx: QueryCtx | MutationCtx) {
   if (!identity) throw new Error("Not authenticated");
 
   // Convex Auth subject for this authenticated user.
-  const physician = await ctx.db
+  const byUserId = await ctx.db
     .query("physicians")
     .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
-    .unique();
+    .collect();
 
-  if (physician) return physician;
+  if (byUserId.length > 1) {
+    throw new Error("Data integrity error: duplicate physician linkage for current user");
+  }
+  if (byUserId.length === 1) {
+    if (!byUserId[0].isActive) throw new Error("Physician record is inactive");
+    return byUserId[0];
+  }
 
   const email = normalizeEmail(identity.email);
   if (!email) {
     throw new Error("Signed-in account is not linked to a physician profile");
   }
 
-  const physicianByEmail = await ctx.db
+  const byEmail = await ctx.db
     .query("physicians")
     .withIndex("by_email", (q) => q.eq("email", email))
-    .unique();
+    .collect();
 
-  if (!physicianByEmail) throw new Error("Physician record not found");
-  return physicianByEmail;
+  if (byEmail.length > 1) {
+    throw new Error("Data integrity error: duplicate physician records for email");
+  }
+  if (byEmail.length === 0) throw new Error("Physician record not found");
+  if (!byEmail[0].isActive) throw new Error("Physician record is inactive");
+  return byEmail[0];
 }
 
 export async function requireAdmin(ctx: QueryCtx | MutationCtx) {

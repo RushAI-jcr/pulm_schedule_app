@@ -11,6 +11,7 @@ import {
   canTargetRespondToTrade,
 } from "../lib/workflowPolicy";
 import { enforceRateLimit } from "../lib/rateLimit";
+import { getSingleActiveFiscalYear } from "../lib/fiscalYear";
 
 type AnyCtx = QueryCtx | MutationCtx;
 
@@ -33,16 +34,7 @@ function formatRotationLabel(rotation: Doc<"rotations"> | null): string {
 }
 
 async function getActiveTradeFiscalYear(ctx: AnyCtx) {
-  const published = await ctx.db
-    .query("fiscalYears")
-    .withIndex("by_status", (q) => q.eq("status", "published"))
-    .first();
-  if (published) return published;
-
-  return await ctx.db
-    .query("fiscalYears")
-    .withIndex("by_status", (q) => q.eq("status", "building"))
-    .first();
+  return await getSingleActiveFiscalYear(ctx);
 }
 
 async function requirePublishedTradeWindow(
@@ -263,15 +255,21 @@ export const getAdminTradeQueue = query({
   args: {},
   handler: async (ctx) => {
     await requireAdmin(ctx);
+    const fiscalYear = await getActiveTradeFiscalYear(ctx);
+    if (!fiscalYear) return [];
 
     const proposed = await ctx.db
       .query("tradeRequests")
-      .withIndex("by_status", (q) => q.eq("status", "proposed"))
+      .withIndex("by_fiscalYear_status", (q) =>
+        q.eq("fiscalYearId", fiscalYear._id).eq("status", "proposed"),
+      )
       .collect();
 
     const accepted = await ctx.db
       .query("tradeRequests")
-      .withIndex("by_status", (q) => q.eq("status", "peer_accepted"))
+      .withIndex("by_fiscalYear_status", (q) =>
+        q.eq("fiscalYearId", fiscalYear._id).eq("status", "peer_accepted"),
+      )
       .collect();
 
     return await hydrateTrades(ctx, [...proposed, ...accepted]);
@@ -325,7 +323,9 @@ export const proposeTrade = mutation({
 
     const alreadyOpen = await ctx.db
       .query("tradeRequests")
-      .withIndex("by_status", (q) => q.eq("status", "proposed"))
+      .withIndex("by_fiscalYear_status", (q) =>
+        q.eq("fiscalYearId", fiscalYear._id).eq("status", "proposed"),
+      )
       .collect();
 
     const duplicate = alreadyOpen.find(

@@ -8,6 +8,7 @@ import {
   nextScheduleRequestStatusAfterSave,
 } from "../lib/workflowPolicy";
 import { enforceRateLimit } from "../lib/rateLimit";
+import { getSingleActiveFiscalYear, isRequestDeadlineOpen } from "../lib/fiscalYear";
 
 const availabilityValidator = v.union(
   v.literal("green"),
@@ -16,31 +17,6 @@ const availabilityValidator = v.union(
 );
 
 type FunctionCtx = QueryCtx | MutationCtx;
-
-async function getCurrentFiscalYear(ctx: FunctionCtx) {
-  const collecting = await ctx.db
-    .query("fiscalYears")
-    .withIndex("by_status", (q) => q.eq("status", "collecting"))
-    .first();
-  if (collecting) return collecting;
-
-  const setup = await ctx.db
-    .query("fiscalYears")
-    .withIndex("by_status", (q) => q.eq("status", "setup"))
-    .first();
-  if (setup) return setup;
-
-  const building = await ctx.db
-    .query("fiscalYears")
-    .withIndex("by_status", (q) => q.eq("status", "building"))
-    .first();
-  if (building) return building;
-
-  return await ctx.db
-    .query("fiscalYears")
-    .withIndex("by_status", (q) => q.eq("status", "published"))
-    .first();
-}
 
 async function getOrCreateRequest(
   ctx: MutationCtx,
@@ -52,9 +28,12 @@ async function getOrCreateRequest(
     .withIndex("by_physician_fy", (q) =>
       q.eq("physicianId", physicianId).eq("fiscalYearId", fiscalYearId),
     )
-    .first();
+    .collect();
 
-  if (existing) return existing;
+  if (existing.length > 1) {
+    throw new Error("Data integrity error: duplicate schedule requests for physician/fiscal year");
+  }
+  if (existing.length === 1) return existing[0];
 
   const requestId = await ctx.db.insert("scheduleRequests", {
     physicianId,
@@ -69,9 +48,16 @@ async function getOrCreateRequest(
   return created;
 }
 
-function requireCollectingWindow(fiscalYearStatus: FiscalYearStatus) {
+function requireCollectingWindow(
+  fiscalYear: Pick<Doc<"fiscalYears">, "status" | "requestDeadline">,
+  now = Date.now(),
+) {
+  const fiscalYearStatus = fiscalYear.status as FiscalYearStatus;
   if (!canEditRequestForFiscalYear(fiscalYearStatus)) {
     throw new Error("Scheduling requests are only editable while fiscal year is collecting");
+  }
+  if (!isRequestDeadlineOpen(fiscalYear, now)) {
+    throw new Error("Request deadline has passed for this fiscal year");
   }
 }
 
@@ -79,7 +65,7 @@ export const getCurrentFiscalYearWeeks = query({
   args: {},
   handler: async (ctx) => {
     await getCurrentPhysician(ctx);
-    const fiscalYear = await getCurrentFiscalYear(ctx);
+    const fiscalYear = await getSingleActiveFiscalYear(ctx);
     if (!fiscalYear) {
       return { fiscalYear: null, weeks: [] };
     }
@@ -99,7 +85,7 @@ export const getMyScheduleRequest = query({
   args: {},
   handler: async (ctx) => {
     const physician = await getCurrentPhysician(ctx);
-    const fiscalYear = await getCurrentFiscalYear(ctx);
+    const fiscalYear = await getSingleActiveFiscalYear(ctx);
 
     if (!fiscalYear) {
       return { fiscalYear: null, request: null, weekPreferences: [] };
@@ -150,10 +136,10 @@ export const saveMyScheduleRequest = mutation({
   },
   handler: async (ctx, args) => {
     const physician = await getCurrentPhysician(ctx);
-    const fiscalYear = await getCurrentFiscalYear(ctx);
+    const fiscalYear = await getSingleActiveFiscalYear(ctx);
     if (!fiscalYear) throw new Error("No fiscal year configured");
 
-    requireCollectingWindow(fiscalYear.status);
+    requireCollectingWindow(fiscalYear);
 
     const request = await getOrCreateRequest(ctx, physician._id, fiscalYear._id);
     if (!request) throw new Error("Failed to load request");
@@ -174,14 +160,23 @@ export const setMyWeekPreference = mutation({
   args: {
     weekId: v.id("weeks"),
     availability: availabilityValidator,
+    reasonCategory: v.optional(
+      v.union(
+        v.literal("vacation"),
+        v.literal("conference"),
+        v.literal("personal_religious"),
+        v.literal("admin_leave"),
+        v.literal("other"),
+      ),
+    ),
     reasonText: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const physician = await getCurrentPhysician(ctx);
-    const fiscalYear = await getCurrentFiscalYear(ctx);
+    const fiscalYear = await getSingleActiveFiscalYear(ctx);
     if (!fiscalYear) throw new Error("No fiscal year configured");
 
-    requireCollectingWindow(fiscalYear.status);
+    requireCollectingWindow(fiscalYear);
 
     const week = await ctx.db.get(args.weekId);
     if (!week || week.fiscalYearId !== fiscalYear._id) {
@@ -192,17 +187,18 @@ export const setMyWeekPreference = mutation({
     if (!request) throw new Error("Failed to load request");
     await enforceRateLimit(ctx, physician._id, "schedule_week_preference_set");
 
-    const existingPreferences = await ctx.db
+    const existing = await ctx.db
       .query("weekPreferences")
-      .withIndex("by_request", (q) => q.eq("scheduleRequestId", request._id))
-      .collect();
-
-    const existing = existingPreferences.find((p) => p.weekId === args.weekId);
+      .withIndex("by_request_week", (q) =>
+        q.eq("scheduleRequestId", request._id).eq("weekId", args.weekId),
+      )
+      .first();
 
     const payload = {
       scheduleRequestId: request._id,
       weekId: args.weekId,
       availability: args.availability,
+      reasonCategory: args.reasonCategory,
       reasonText: args.reasonText,
     };
 
@@ -224,10 +220,10 @@ export const submitMyScheduleRequest = mutation({
   args: {},
   handler: async (ctx) => {
     const physician = await getCurrentPhysician(ctx);
-    const fiscalYear = await getCurrentFiscalYear(ctx);
+    const fiscalYear = await getSingleActiveFiscalYear(ctx);
     if (!fiscalYear) throw new Error("No fiscal year configured");
 
-    requireCollectingWindow(fiscalYear.status);
+    requireCollectingWindow(fiscalYear);
 
     const request = await getOrCreateRequest(ctx, physician._id, fiscalYear._id);
     if (!request) throw new Error("Failed to load request");
@@ -247,7 +243,7 @@ export const getAdminScheduleRequests = query({
   handler: async (ctx) => {
     await requireAdmin(ctx);
 
-    const fiscalYear = await getCurrentFiscalYear(ctx);
+    const fiscalYear = await getSingleActiveFiscalYear(ctx);
     if (!fiscalYear) {
       return { fiscalYear: null, requests: [] };
     }

@@ -6,9 +6,9 @@ Pulmonary physician annual scheduling system that collects preferences, enforces
 
 ## Current stack
 
-- Frontend: React 19 + Vite + Tailwind (`src/`)
+- Frontend: Next.js 15 + React 19 + Tailwind (`src/`)
 - Backend: Convex functions/schema/auth (`convex/`)
-- Auth: Convex Auth (email/password)
+- Auth: Convex Auth + WorkOS SSO
 
 ## Core domain entities
 
