@@ -1,7 +1,7 @@
 import { mutation, query, QueryCtx, MutationCtx } from "../_generated/server";
 import { Doc, Id } from "../_generated/dataModel";
 import { v } from "convex/values";
-import { getCurrentPhysician, requireAdmin } from "../lib/auth";
+import { getCurrentPhysician, requireAdmin, requireAuthenticatedUser } from "../lib/auth";
 import {
   canEditRequestForFiscalYear,
   FiscalYearStatus,
@@ -9,11 +9,28 @@ import {
 } from "../lib/workflowPolicy";
 import { enforceRateLimit } from "../lib/rateLimit";
 import { getSingleActiveFiscalYear, isRequestDeadlineOpen } from "../lib/fiscalYear";
+import {
+  getMissingActiveRotationIds,
+  getRotationConfigurationIssues,
+} from "../lib/rotationPreferenceReadiness";
+import {
+  doesImportDoctorTokenMatch,
+  getWeekCoverageDiff,
+  mapUploadedWeeksToFiscalWeeks,
+  normalizeImportFiscalYearLabel,
+} from "../lib/scheduleImport";
 
 const availabilityValidator = v.union(
   v.literal("green"),
   v.literal("yellow"),
   v.literal("red"),
+);
+
+const importAvailabilityValidator = v.union(
+  v.literal("green"),
+  v.literal("yellow"),
+  v.literal("red"),
+  v.literal("unset"),
 );
 
 type FunctionCtx = QueryCtx | MutationCtx;
@@ -39,6 +56,9 @@ async function getOrCreateRequest(
     physicianId,
     fiscalYearId,
     status: "draft",
+    rotationPreferenceApprovalStatus: "pending",
+    rotationPreferenceApprovedAt: undefined,
+    rotationPreferenceApprovedBy: undefined,
   });
 
   const created = await ctx.db.get(requestId);
@@ -63,8 +83,9 @@ function requireCollectingWindow(
 
 export const getCurrentFiscalYearWeeks = query({
   args: {},
+  returns: v.any(),
   handler: async (ctx) => {
-    await getCurrentPhysician(ctx);
+    await requireAuthenticatedUser(ctx);
     const fiscalYear = await getSingleActiveFiscalYear(ctx);
     if (!fiscalYear) {
       return { fiscalYear: null, weeks: [] };
@@ -83,6 +104,7 @@ export const getCurrentFiscalYearWeeks = query({
 
 export const getMyScheduleRequest = query({
   args: {},
+  returns: v.any(),
   handler: async (ctx) => {
     const physician = await getCurrentPhysician(ctx);
     const fiscalYear = await getSingleActiveFiscalYear(ctx);
@@ -134,6 +156,7 @@ export const saveMyScheduleRequest = mutation({
   args: {
     specialRequests: v.optional(v.string()),
   },
+  returns: v.object({ message: v.string() }),
   handler: async (ctx, args) => {
     const physician = await getCurrentPhysician(ctx);
     const fiscalYear = await getSingleActiveFiscalYear(ctx);
@@ -171,6 +194,7 @@ export const setMyWeekPreference = mutation({
     ),
     reasonText: v.optional(v.string()),
   },
+  returns: v.object({ message: v.string() }),
   handler: async (ctx, args) => {
     const physician = await getCurrentPhysician(ctx);
     const fiscalYear = await getSingleActiveFiscalYear(ctx);
@@ -216,8 +240,172 @@ export const setMyWeekPreference = mutation({
   },
 });
 
+export const importWeekPreferencesFromUpload = mutation({
+  args: {
+    targetPhysicianId: v.optional(v.id("physicians")),
+    sourceFileName: v.string(),
+    sourceDoctorToken: v.string(),
+    sourceFiscalYearLabel: v.string(),
+    weeks: v.array(
+      v.object({
+        weekStart: v.string(),
+        weekEnd: v.optional(v.string()),
+        availability: importAvailabilityValidator,
+      }),
+    ),
+  },
+  returns: v.any(),
+  handler: async (ctx, args) => {
+    const currentUser = await requireAuthenticatedUser(ctx);
+    const fiscalYear = await getSingleActiveFiscalYear(ctx);
+    if (!fiscalYear) throw new Error("No fiscal year configured");
+
+    requireCollectingWindow(fiscalYear);
+    if (currentUser.physician) {
+      await enforceRateLimit(ctx, currentUser.physician._id, "schedule_request_import");
+    }
+
+    let targetPhysician = currentUser.physician;
+    if (args.targetPhysicianId) {
+      const selected = await ctx.db.get(args.targetPhysicianId);
+      if (!selected) {
+        throw new Error("Target physician not found");
+      }
+
+      const isSelfTarget = currentUser.physician
+        ? selected._id === currentUser.physician._id
+        : false;
+      if (!isSelfTarget && currentUser.role !== "admin") {
+        throw new Error("Admin access required");
+      }
+      targetPhysician = selected;
+    } else if (!targetPhysician) {
+      if (currentUser.role === "admin") {
+        throw new Error("Select a target physician for import");
+      }
+      throw new Error("Signed-in account is not linked to a physician profile");
+    }
+
+    if (!targetPhysician.isActive) {
+      throw new Error("Target physician is inactive");
+    }
+
+    const normalizedSourceFy = normalizeImportFiscalYearLabel(args.sourceFiscalYearLabel);
+    const normalizedActiveFy = normalizeImportFiscalYearLabel(fiscalYear.label);
+    if (normalizedSourceFy !== normalizedActiveFy) {
+      throw new Error(
+        `Uploaded file FY (${normalizedSourceFy}) does not match active fiscal year (${normalizedActiveFy})`,
+      );
+    }
+
+    if (
+      !doesImportDoctorTokenMatch(args.sourceDoctorToken, {
+        lastName: targetPhysician.lastName,
+        initials: targetPhysician.initials,
+      })
+    ) {
+      throw new Error(
+        `Uploaded file doctor token (${args.sourceDoctorToken}) does not match selected physician (${targetPhysician.lastName} / ${targetPhysician.initials})`,
+      );
+    }
+
+    const fiscalWeeks = await ctx.db
+      .query("weeks")
+      .withIndex("by_fiscalYear", (q) => q.eq("fiscalYearId", fiscalYear._id))
+      .collect();
+    fiscalWeeks.sort((a, b) => a.weekNumber - b.weekNumber);
+
+    const expectedWeekStarts = fiscalWeeks.map((week) => week.startDate);
+    const uploadedWeekStarts = args.weeks.map((week) => week.weekStart);
+    const { missing, unknown, duplicates } = getWeekCoverageDiff(
+      expectedWeekStarts,
+      uploadedWeekStarts,
+    );
+
+    if (duplicates.length > 0) {
+      throw new Error(`Upload contains duplicate week_start values: ${duplicates.join(", ")}`);
+    }
+
+    if (unknown.length > 0) {
+      throw new Error(`Upload contains unknown week_start values: ${unknown.join(", ")}`);
+    }
+
+    if (missing.length > 0) {
+      throw new Error(`Upload is missing week_start values: ${missing.join(", ")}`);
+    }
+
+    if (args.weeks.length !== fiscalWeeks.length) {
+      throw new Error(
+        `Upload must include exactly ${fiscalWeeks.length} weeks, found ${args.weeks.length}`,
+      );
+    }
+
+    const mappedWeeks = mapUploadedWeeksToFiscalWeeks({
+      expectedWeeks: fiscalWeeks.map((week) => ({
+        _id: week._id,
+        startDate: week.startDate,
+      })),
+      uploadedWeeks: args.weeks.map((week) => ({
+        weekStart: week.weekStart,
+        availability: week.availability,
+      })),
+    });
+
+    if (mappedWeeks.length !== fiscalWeeks.length) {
+      throw new Error("Upload week mapping failed due to unknown week_start values");
+    }
+
+    const request = await getOrCreateRequest(ctx, targetPhysician._id, fiscalYear._id);
+    const existing = await ctx.db
+      .query("weekPreferences")
+      .withIndex("by_request", (q) => q.eq("scheduleRequestId", request._id))
+      .collect();
+
+    for (const preference of existing) {
+      await ctx.db.delete(preference._id);
+    }
+
+    const counts = {
+      red: 0,
+      yellow: 0,
+      green: 0,
+      unset: 0,
+    };
+
+    for (const mappedWeek of mappedWeeks) {
+      counts[mappedWeek.availability] += 1;
+      if (mappedWeek.availability === "unset") {
+        continue;
+      }
+
+      await ctx.db.insert("weekPreferences", {
+        scheduleRequestId: request._id,
+        weekId: mappedWeek.weekId,
+        availability: mappedWeek.availability,
+      });
+    }
+
+    if (request.status === "submitted") {
+      await ctx.db.patch(request._id, { status: "revised" });
+    }
+
+    const importedCount = counts.red + counts.yellow + counts.green;
+    const clearedCount = counts.unset;
+
+    return {
+      message: `Imported ${importedCount} week preferences from ${args.sourceFileName}`,
+      physicianId: targetPhysician._id,
+      fiscalYearLabel: fiscalYear.label,
+      importedCount,
+      clearedCount,
+      counts,
+    };
+  },
+});
+
 export const submitMyScheduleRequest = mutation({
   args: {},
+  returns: v.object({ message: v.string() }),
   handler: async (ctx) => {
     const physician = await getCurrentPhysician(ctx);
     const fiscalYear = await getSingleActiveFiscalYear(ctx);
@@ -228,6 +416,40 @@ export const submitMyScheduleRequest = mutation({
     const request = await getOrCreateRequest(ctx, physician._id, fiscalYear._id);
     if (!request) throw new Error("Failed to load request");
     await enforceRateLimit(ctx, physician._id, "schedule_request_submit");
+
+    const activeRotations = (
+      await ctx.db
+        .query("rotations")
+        .withIndex("by_fiscalYear", (q) => q.eq("fiscalYearId", fiscalYear._id))
+        .collect()
+    )
+      .filter((rotation) => rotation.isActive)
+      .sort((a, b) => a.sortOrder - b.sortOrder);
+
+    const rotationConfigIssues = getRotationConfigurationIssues(
+      activeRotations.map((rotation) => rotation.name),
+    );
+    if (!rotationConfigIssues.isValid) {
+      throw new Error(
+        "Active rotation setup is incomplete. Ask an admin to finalize Pulm, MICU 1, MICU 2, AICU, LTAC, ROPH, IP, and PFT before submitting.",
+      );
+    }
+
+    const preferenceRows = await ctx.db
+      .query("rotationPreferences")
+      .withIndex("by_request", (q) => q.eq("scheduleRequestId", request._id))
+      .collect();
+    const missingRotationIds = getMissingActiveRotationIds({
+      activeRotationIds: activeRotations.map((rotation) => String(rotation._id)),
+      configuredRotationIds: Array.from(
+        new Set(preferenceRows.map((preference) => String(preference.rotationId))),
+      ),
+    });
+    if (missingRotationIds.length > 0) {
+      throw new Error(
+        `Set preferences for all active rotations before submitting (${activeRotations.length} required, ${missingRotationIds.length} missing).`,
+      );
+    }
 
     await ctx.db.patch(request._id, {
       status: "submitted",
@@ -240,6 +462,7 @@ export const submitMyScheduleRequest = mutation({
 
 export const getAdminScheduleRequests = query({
   args: {},
+  returns: v.any(),
   handler: async (ctx) => {
     await requireAdmin(ctx);
 

@@ -10,7 +10,7 @@ const applicationTables = {
     email: v.string(),
     firstName: v.optional(v.string()),
     lastName: v.optional(v.string()),
-    role: v.union(v.literal("physician"), v.literal("admin")),
+    role: v.union(v.literal("viewer"), v.literal("physician"), v.literal("admin")),
     physicianId: v.optional(v.id("physicians")),
     lastLoginAt: v.number(),
   })
@@ -184,6 +184,11 @@ const applicationTables = {
     ),
     submittedAt: v.optional(v.number()), // timestamp
     specialRequests: v.optional(v.string()), // free text
+    rotationPreferenceApprovalStatus: v.optional(
+      v.union(v.literal("pending"), v.literal("approved")),
+    ),
+    rotationPreferenceApprovedAt: v.optional(v.number()),
+    rotationPreferenceApprovedBy: v.optional(v.id("physicians")),
   })
     .index("by_physician_fy", ["physicianId", "fiscalYearId"])
     .index("by_fiscalYear", ["fiscalYearId"])
@@ -217,6 +222,7 @@ const applicationTables = {
     rotationId: v.id("rotations"),
     preferenceRank: v.optional(v.number()), // 1 = most preferred, null = no preference
     avoid: v.boolean(), // true = physician wants to avoid this rotation
+    deprioritize: v.optional(v.boolean()), // true = physician can do it but prefers less of it
     avoidReason: v.optional(v.string()),
   })
     .index("by_request", ["scheduleRequestId"])
@@ -274,7 +280,7 @@ const applicationTables = {
     action: v.string(),
     timestamp: v.number(),
   })
-    .index("by_actor_action", ["actorPhysicianId", "action"])
+    .index("by_actor_action", ["actorPhysicianId", "action", "timestamp"])
     .index("by_timestamp", ["timestamp"]),
 };
 

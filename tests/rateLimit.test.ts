@@ -37,4 +37,10 @@ describe("rate limit helpers", () => {
     expect(message).toContain("schedule submissions");
     expect(message).toContain(String(RATE_LIMIT_RULES.schedule_request_submit.maxRequests));
   });
+
+  it("defines a rule for schedule imports", () => {
+    expect(RATE_LIMIT_RULES.schedule_request_import.maxRequests).toBeGreaterThan(0);
+    expect(RATE_LIMIT_RULES.schedule_request_import.windowMs).toBeGreaterThan(0);
+    expect(buildRateLimitErrorMessage("schedule_request_import")).toContain("schedule imports");
+  });
 });

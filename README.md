@@ -24,7 +24,7 @@ See `docs/README.md` for full documentation map.
 
 The app supports annual physician scheduling workflows:
 
-- physician/admin role management
+- viewer/physician/admin role management
 - fiscal year and week planning
 - preference collection (weeks, rotations)
 - cFTE planning and compliance
@@ -34,7 +34,7 @@ The app supports annual physician scheduling workflows:
 
 ## Authentication
 
-Authentication uses Convex Auth with WorkOS SSO and physician profile linkage by email.
+Authentication uses WorkOS AuthKit (hosted sign-in/sign-up) with Convex custom JWT validation and physician profile linkage by email. Admin users may be physician-linked or non-physician accounts.
 
 ## Docs
 

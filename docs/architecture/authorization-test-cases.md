@@ -8,11 +8,22 @@ Target: catch broken object-level authorization and role bypass regressions.
 - Physician A cannot edit Physician B request/preferences.
 - Physician A cannot resolve trades they do not own.
 
+## Viewer access tests
+
+- Viewer can access read-only roster/fiscal-year queries.
+- Viewer can access dashboard and published master-calendar read-only data.
+- Viewer cannot submit schedule requests, set preferences, or propose/respond to trades.
+- Viewer cannot run admin mutations.
+
 ## Role escalation tests
 
 - Non-admin cannot run admin mutations (seed, fiscal year create, publish schedule).
 - Non-admin cannot access admin-only audit log endpoints.
 - Hidden admin UI controls do not grant access without backend checks.
+- Admin account without physician linkage can still run admin endpoints.
+- Admin + physician combinations resolve to admin access (highest role wins).
+- New authenticated accounts default to physician unless explicitly set to viewer.
+- Route guards enforce hierarchy (`admin` > `physician` > `viewer`) on protected pages.
 
 ## Bootstrap and account-linking tests
 

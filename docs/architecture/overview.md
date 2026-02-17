@@ -12,7 +12,9 @@ Pulmonary physician annual scheduling system that collects preferences, enforces
 
 ## Core domain entities
 
-- Physicians and roles (`physician`, `admin`)
+- Physicians and roles (`viewer`, `physician`, `admin`)
+- Role precedence uses `admin` > `physician` > `viewer`; authenticated users default to `physician` unless explicitly downgraded.
+- App users (WorkOS-authenticated identities; admin may or may not be linked to a physician profile)
 - Fiscal years and weeks
 - Rotations, clinic types, physician clinic assignments
 - Schedule requests (week and rotation preferences)

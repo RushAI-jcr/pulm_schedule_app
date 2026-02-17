@@ -4,6 +4,7 @@ import { MutationCtx } from "../_generated/server";
 export type SensitiveMutationAction =
   | "schedule_request_save"
   | "schedule_week_preference_set"
+  | "schedule_request_import"
   | "schedule_request_submit"
   | "trade_propose"
   | "trade_respond"
@@ -30,6 +31,11 @@ export const RATE_LIMIT_RULES: Record<SensitiveMutationAction, RateLimitRule> = 
     maxRequests: 200,
     windowMs: 60 * 60 * 1000,
     label: "week preference updates",
+  },
+  schedule_request_import: {
+    maxRequests: 30,
+    windowMs: 60 * 60 * 1000,
+    label: "schedule imports",
   },
   schedule_request_submit: {
     maxRequests: 20,
@@ -91,14 +97,17 @@ export async function enforceRateLimit(
   const rule = RATE_LIMIT_RULES[action];
   const windowStart = now - rule.windowMs;
 
-  const events = await ctx.db
+  const recentEvents = await ctx.db
     .query("rateLimitEvents")
     .withIndex("by_actor_action", (q) =>
-      q.eq("actorPhysicianId", actorPhysicianId).eq("action", action),
+      q
+        .eq("actorPhysicianId", actorPhysicianId)
+        .eq("action", action)
+        .gte("timestamp", windowStart),
     )
     .collect();
 
-  const recentCount = countRecentRateLimitEvents(events, windowStart);
+  const recentCount = recentEvents.length;
   if (isRateLimitExceeded(action, recentCount)) {
     throw new Error(buildRateLimitErrorMessage(action));
   }

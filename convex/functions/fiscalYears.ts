@@ -1,6 +1,6 @@
-import { query, mutation } from "../_generated/server";
+import { query, mutation, MutationCtx } from "../_generated/server";
 import { v } from "convex/values";
-import { getCurrentPhysician, requireAdmin } from "../lib/auth";
+import { requireAdmin, requireAuthenticatedUser } from "../lib/auth";
 import { canTransitionFiscalYearStatus, FiscalYearStatus } from "../lib/workflowPolicy";
 import {
   ACTIVE_FISCAL_YEAR_STATUSES,
@@ -9,6 +9,12 @@ import {
   getSingleActiveFiscalYear,
   parseRequestDeadlineMs,
 } from "../lib/fiscalYear";
+import { publishDraftCalendarForFiscalYear } from "../lib/masterCalendarPublish";
+import {
+  INSTITUTIONAL_CONFERENCE_NAMES,
+  normalizeInstitutionalConferenceName,
+} from "../lib/calendarEvents";
+import { Id } from "../_generated/dataModel";
 
 const fiscalYearStatusValidator = v.union(
   v.literal("setup"),
@@ -18,18 +24,70 @@ const fiscalYearStatusValidator = v.union(
   v.literal("archived"),
 );
 
+type FiscalWeekSeedRecord = {
+  _id: Id<"weeks">;
+  weekNumber: number;
+  startDate: string;
+  endDate: string;
+};
+
+async function seedInstitutionalConferencePlaceholders(params: {
+  ctx: MutationCtx;
+  fiscalYearId: Id<"fiscalYears">;
+  weeks: FiscalWeekSeedRecord[];
+  addedBy: string;
+}) {
+  if (params.weeks.length === 0) return { insertedCount: 0 };
+
+  const existingEvents = await params.ctx.db
+    .query("calendarEvents")
+    .withIndex("by_fiscalYear", (q) => q.eq("fiscalYearId", params.fiscalYearId))
+    .collect();
+
+  const existingConferenceNames = new Set<string>();
+  for (const event of existingEvents) {
+    if (event.category !== "conference") continue;
+    const normalized = normalizeInstitutionalConferenceName(event.name);
+    if (!normalized) continue;
+    existingConferenceNames.add(normalized);
+  }
+
+  const firstWeek = [...params.weeks].sort((a, b) => a.weekNumber - b.weekNumber)[0];
+  let insertedCount = 0;
+  for (const conferenceName of INSTITUTIONAL_CONFERENCE_NAMES) {
+    if (existingConferenceNames.has(conferenceName)) continue;
+
+    await params.ctx.db.insert("calendarEvents", {
+      fiscalYearId: params.fiscalYearId,
+      weekId: firstWeek._id,
+      date: firstWeek.startDate,
+      name: conferenceName,
+      category: "conference",
+      source: "admin_manual",
+      isApproved: true,
+      isVisible: false,
+      addedBy: params.addedBy,
+    });
+    insertedCount += 1;
+  }
+
+  return { insertedCount };
+}
+
 export const getFiscalYears = query({
   args: {},
+  returns: v.any(),
   handler: async (ctx) => {
-    await getCurrentPhysician(ctx);
+    await requireAuthenticatedUser(ctx);
     return await ctx.db.query("fiscalYears").collect();
   },
 });
 
 export const getCurrentFiscalYear = query({
   args: {},
+  returns: v.any(),
   handler: async (ctx) => {
-    await getCurrentPhysician(ctx);
+    await requireAuthenticatedUser(ctx);
     return await getSingleActiveFiscalYear(ctx);
   },
 });
@@ -40,8 +98,9 @@ export const createFiscalYear = mutation({
     startDate: v.string(),
     endDate: v.string(),
   },
+  returns: v.id("fiscalYears"),
   handler: async (ctx, args) => {
-    await requireAdmin(ctx);
+    const admin = await requireAdmin(ctx);
     const label = args.label.trim().toUpperCase();
     if (!label) throw new Error("Fiscal year label is required");
 
@@ -64,14 +123,14 @@ export const createFiscalYear = mutation({
     // Generate 52 weeks
     const startDate = new Date(args.startDate);
     const weeks = [];
-    
+
     for (let i = 0; i < 52; i++) {
       const weekStart = new Date(startDate);
       weekStart.setDate(startDate.getDate() + (i * 7));
-      
+
       const weekEnd = new Date(weekStart);
       weekEnd.setDate(weekStart.getDate() + 6);
-      
+
       weeks.push({
         fiscalYearId,
         weekNumber: i + 1,
@@ -80,9 +139,23 @@ export const createFiscalYear = mutation({
       });
     }
 
+    const insertedWeeks: FiscalWeekSeedRecord[] = [];
     for (const week of weeks) {
-      await ctx.db.insert("weeks", week);
+      const weekId = await ctx.db.insert("weeks", week);
+      insertedWeeks.push({
+        _id: weekId,
+        weekNumber: week.weekNumber,
+        startDate: week.startDate,
+        endDate: week.endDate,
+      });
     }
+
+    await seedInstitutionalConferencePlaceholders({
+      ctx,
+      fiscalYearId,
+      weeks: insertedWeeks,
+      addedBy: admin.actorId,
+    });
 
     return fiscalYearId;
   },
@@ -90,8 +163,9 @@ export const createFiscalYear = mutation({
 
 export const getWeeks = query({
   args: { fiscalYearId: v.id("fiscalYears") },
+  returns: v.any(),
   handler: async (ctx, args) => {
-    await getCurrentPhysician(ctx);
+    await requireAuthenticatedUser(ctx);
     return await ctx.db
       .query("weeks")
       .withIndex("by_fiscalYear", (q) => q.eq("fiscalYearId", args.fiscalYearId))
@@ -101,8 +175,9 @@ export const getWeeks = query({
 
 export const seedFY27 = mutation({
   args: {},
+  returns: v.object({ message: v.string() }),
   handler: async (ctx) => {
-    await requireAdmin(ctx);
+    const admin = await requireAdmin(ctx);
 
     // Check if FY27 already exists
     const existingByLabel = await ctx.db
@@ -176,16 +251,32 @@ export const seedFY27 = mutation({
       { wk: 52, start: "2027-06-21", end: "2027-06-27" },
     ];
 
+    const insertedWeeks: FiscalWeekSeedRecord[] = [];
     for (const week of FY27_WEEKS) {
-      await ctx.db.insert("weeks", {
+      const weekId = await ctx.db.insert("weeks", {
         fiscalYearId,
+        weekNumber: week.wk,
+        startDate: week.start,
+        endDate: week.end,
+      });
+      insertedWeeks.push({
+        _id: weekId,
         weekNumber: week.wk,
         startDate: week.start,
         endDate: week.end,
       });
     }
 
-    return { message: "FY27 created with 52 weeks" };
+    const conferenceSeed = await seedInstitutionalConferencePlaceholders({
+      ctx,
+      fiscalYearId,
+      weeks: insertedWeeks,
+      addedBy: admin.actorId,
+    });
+
+    return {
+      message: `FY27 created with 52 weeks and ${conferenceSeed.insertedCount} conference placeholder(s)`,
+    };
   },
 });
 
@@ -194,11 +285,15 @@ export const updateFiscalYearStatus = mutation({
     fiscalYearId: v.id("fiscalYears"),
     status: fiscalYearStatusValidator,
   },
+  returns: v.any(),
   handler: async (ctx, args) => {
-    await requireAdmin(ctx);
+    const admin = await requireAdmin(ctx);
 
     const fiscalYear = await ctx.db.get(args.fiscalYearId);
     if (!fiscalYear) throw new Error("Fiscal year not found");
+    if (fiscalYear.status === args.status) {
+      return { message: `${fiscalYear.label} is already ${args.status}` };
+    }
 
     if (
       !canTransitionFiscalYearStatus(
@@ -213,6 +308,14 @@ export const updateFiscalYearStatus = mutation({
       await ensureCanActivateFiscalYear(ctx, fiscalYear._id);
     }
 
+    if (args.status === "published") {
+      return await publishDraftCalendarForFiscalYear({
+        ctx,
+        fiscalYear,
+        adminId: admin.actorPhysicianId,
+      });
+    }
+
     await ctx.db.patch(fiscalYear._id, { status: args.status });
     return { message: `${fiscalYear.label} moved to ${args.status}` };
   },
@@ -223,6 +326,7 @@ export const setFiscalYearRequestDeadline = mutation({
     fiscalYearId: v.id("fiscalYears"),
     requestDeadline: v.optional(v.string()),
   },
+  returns: v.object({ message: v.string() }),
   handler: async (ctx, args) => {
     await requireAdmin(ctx);
 

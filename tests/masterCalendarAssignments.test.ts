@@ -17,6 +17,25 @@ describe("master calendar assignment helpers", () => {
     expect(sorted.map((candidate) => candidate.physicianId)).toEqual(["p2", "p1", "p4", "p3"]);
   });
 
+  it("uses preference rank before headroom within same availability bucket", () => {
+    const sorted = sortCandidatesByAvailabilityAndHeadroom([
+      { physicianId: "p1", availability: "green", preferenceRank: 3, headroom: 0.9 },
+      { physicianId: "p2", availability: "green", preferenceRank: 1, headroom: 0.1 },
+      { physicianId: "p3", availability: "green", headroom: 1.0 },
+    ]);
+
+    expect(sorted.map((candidate) => candidate.physicianId)).toEqual(["p2", "p1", "p3"]);
+  });
+
+  it("deprioritizes flagged rotations after neutral candidates", () => {
+    const sorted = sortCandidatesByAvailabilityAndHeadroom([
+      { physicianId: "p1", availability: "green", deprioritize: true, headroom: 0.9 },
+      { physicianId: "p2", availability: "green", headroom: 0.1 },
+    ]);
+
+    expect(sorted.map((candidate) => candidate.physicianId)).toEqual(["p2", "p1"]);
+  });
+
   it("detects streaks that would exceed max consecutive weeks", () => {
     expect(
       wouldExceedMaxConsecutiveWeeks({

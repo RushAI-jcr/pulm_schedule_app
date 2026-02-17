@@ -29,9 +29,8 @@ jobs:
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
           NEXT_PUBLIC_CONVEX_URL: ${{ secrets.NEXT_PUBLIC_CONVEX_URL }}
-          AUTH_WORKOS_ID: ${{ secrets.AUTH_WORKOS_ID }}
-          AUTH_WORKOS_SECRET: ${{ secrets.AUTH_WORKOS_SECRET }}
-          AUTH_WORKOS_ISSUER: ${{ secrets.AUTH_WORKOS_ISSUER }}
-          AUTH_WORKOS_CONNECTION: ${{ secrets.AUTH_WORKOS_CONNECTION }}
-          NEXT_PUBLIC_WORKOS_CONNECTION: ${{ secrets.NEXT_PUBLIC_WORKOS_CONNECTION }}
+          WORKOS_CLIENT_ID: ${{ secrets.WORKOS_CLIENT_ID }}
+          WORKOS_API_KEY: ${{ secrets.WORKOS_API_KEY }}
+          WORKOS_COOKIE_PASSWORD: ${{ secrets.WORKOS_COOKIE_PASSWORD }}
+          NEXT_PUBLIC_WORKOS_REDIRECT_URI: ${{ secrets.NEXT_PUBLIC_WORKOS_REDIRECT_URI }}
         run: npx convex deploy --cmd 'npm run build'

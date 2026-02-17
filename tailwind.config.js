@@ -1,5 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 export default {
+  darkMode: "class",
   content: [
     "./src/**/*.{js,ts,jsx,tsx,mdx}",
   ],
@@ -13,6 +14,12 @@ export default {
           'gold': '#FFC600',
           'dark-grey': '#333333',
           'light-sage': '#F2F6F3',
+          'digital-sage': '#DFF9EB',
+          'digital-ivory': '#FFFBEC',
+          'digital-rose': '#FDE0DF',
+          'cerulean-blue': '#54ADD3',
+          'deep-blue': '#00668E',
+          'indigo': '#1E1869',
         },
         primary: {
           DEFAULT: '#006332', // Legacy Green
@@ -28,7 +35,7 @@ export default {
       },
       fontFamily: {
         'heading': ['Calibre', 'system-ui', 'sans-serif'],
-        'body': ['Georgia', 'serif'],
+        'body': ['Calibre', 'Avenir Next', 'Segoe UI', 'sans-serif'],
         'mono': ['ui-monospace', 'SFMono-Regular', 'monospace'],
       },
       spacing: {

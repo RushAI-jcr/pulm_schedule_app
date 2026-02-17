@@ -12,12 +12,12 @@ check() {
 }
 
 # Physician functions
-check convex/functions/physicians.ts "await getCurrentPhysician\(ctx\)" "physician query guard"
+check convex/functions/physicians.ts "await requireAuthenticatedUser\(ctx\)|await getCurrentPhysician\(ctx\)" "physician query guard"
 check convex/functions/physicians.ts "await requireAdmin\(ctx\)" "physician admin guard"
 check convex/functions/physicians.ts "linkCurrentUserToPhysicianByEmail" "link mutation present"
 
 # Fiscal year functions
-check convex/functions/fiscalYears.ts "await getCurrentPhysician\(ctx\)" "fiscal year query guard"
+check convex/functions/fiscalYears.ts "await requireAuthenticatedUser\(ctx\)|await getCurrentPhysician\(ctx\)" "fiscal year query guard"
 check convex/functions/fiscalYears.ts "await requireAdmin\(ctx\)" "fiscal year admin guard"
 
 # Schedule request functions
@@ -33,6 +33,10 @@ check convex/functions/rotations.ts "await requireAdmin\(ctx\)" "rotation admin 
 
 # Clinic type functions
 check convex/functions/clinicTypes.ts "await requireAdmin\(ctx\)" "clinic type admin guard"
+
+# Rotation preference functions
+check convex/functions/rotationPreferences.ts "await getCurrentPhysician\(ctx\)" "rotation preference user guard"
+check convex/functions/rotationPreferences.ts "await requireAdmin\(ctx\)" "rotation preference admin guard"
 
 # cFTE target functions
 check convex/functions/cfteTargets.ts "await requireAdmin\(ctx\)" "cfte target admin guard"

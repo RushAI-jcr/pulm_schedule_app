@@ -37,6 +37,10 @@ export function canProposeTradeForFiscalYear(status: FiscalYearStatus): boolean 
   return status === "published";
 }
 
+export function canMapCalendarForFiscalYear(status: FiscalYearStatus): boolean {
+  return status === "building";
+}
+
 export function canProposeTradeAssignments(params: {
   actorPhysicianId: string;
   requesterAssignmentPhysicianId: string | null;

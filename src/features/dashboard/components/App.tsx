@@ -1,24 +1,111 @@
 "use client";
 
-import { Authenticated, Unauthenticated, useMutation, useQuery } from "convex/react";
-import { api } from "@/lib/convex";
-import { SignInForm } from "@/components/auth/SignInForm";
-import { SignOutButton } from "@/components/auth/SignOutButton";
+import { Authenticated, Unauthenticated, useAction, useMutation, useQuery } from "convex/react";
+import { api } from "@/data/convex";
+import { SignInForm } from "@/features/auth/components/SignInForm";
+import { SignOutButton } from "@/features/auth/components/SignOutButton";
+import { ThemeToggle } from "@/shared/components/theme/ThemeToggle";
 import { toast, Toaster } from "sonner";
-import { useEffect, useMemo, useState } from "react";
-import { Availability, AvailabilityOption } from "@/types";
-import { availabilityOptions, defaultClinicTypeNames } from "@/constants";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Availability, AvailabilityOption } from "@/shared/types";
+import { availabilityOptions, defaultClinicTypeNames } from "@/shared/constants";
+import {
+  buildMasterCalendarAssignmentCsv,
+  buildMasterCalendarExportXlsxBytes,
+  buildMasterCalendarIcs,
+  MasterCalendarExportData,
+} from "@/shared/services/masterCalendarExport";
+import {
+  ParsedUploadPayload,
+  UploadAvailability,
+  doesDoctorTokenMatch,
+  normalizeFiscalYearLabel,
+  parseScheduleImportFile,
+} from "@/shared/services/scheduleImport";
+
+type ImportTargetPhysician = {
+  _id: string;
+  firstName: string;
+  lastName: string;
+  initials: string;
+};
+
+type FiscalWeekLite = {
+  startDate: string;
+};
+
+function validateParsedUpload(params: {
+  payload: ParsedUploadPayload | null;
+  fiscalYearLabel: string | null | undefined;
+  targetPhysician: ImportTargetPhysician | null;
+  fiscalWeeks: FiscalWeekLite[];
+}): string | null {
+  const { payload, fiscalYearLabel, targetPhysician, fiscalWeeks } = params;
+  if (!payload || !fiscalYearLabel || !targetPhysician) {
+    return null;
+  }
+
+  const parsedFy = normalizeFiscalYearLabel(payload.sourceFiscalYearLabel);
+  const activeFy = normalizeFiscalYearLabel(fiscalYearLabel);
+  if (parsedFy !== activeFy) {
+    return `File fiscal year ${parsedFy} does not match active fiscal year ${activeFy}.`;
+  }
+
+  if (
+    !doesDoctorTokenMatch(payload.sourceDoctorToken, {
+      lastName: targetPhysician.lastName,
+      initials: targetPhysician.initials,
+    })
+  ) {
+    return `File doctor token ${payload.sourceDoctorToken} does not match ${targetPhysician.lastName} (${targetPhysician.initials}).`;
+  }
+
+  const expectedWeekStarts = fiscalWeeks.map((week) => week.startDate);
+  const uploadedWeekStarts = payload.weeks.map((week) => week.weekStart);
+  if (expectedWeekStarts.length !== uploadedWeekStarts.length) {
+    return `File must include exactly ${expectedWeekStarts.length} weeks; found ${uploadedWeekStarts.length}.`;
+  }
+
+  const expectedSet = new Set(expectedWeekStarts);
+  const uploadedSet = new Set(uploadedWeekStarts);
+
+  const unknown = uploadedWeekStarts.filter((weekStart) => !expectedSet.has(weekStart));
+  if (unknown.length > 0) {
+    return `File contains unknown week_start values: ${Array.from(new Set(unknown)).slice(0, 3).join(", ")}`;
+  }
+
+  const missing = expectedWeekStarts.filter((weekStart) => !uploadedSet.has(weekStart));
+  if (missing.length > 0) {
+    return `File is missing week_start values: ${missing.slice(0, 3).join(", ")}`;
+  }
+
+  return null;
+}
+
+function downloadBlobFile(fileName: string, blob: Blob) {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
 
 export default function App() {
   return (
-    <div className="min-h-screen flex flex-col bg-gray-50">
-      <header className="sticky top-0 z-10 bg-white/80 backdrop-blur-sm h-16 flex justify-between items-center border-b shadow-sm px-4">
-        <h2 className="text-xl font-semibold text-primary">Physician Scheduling</h2>
-        <Authenticated>
-          <SignOutButton />
-        </Authenticated>
+    <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-slate-950">
+      <header className="sticky top-0 z-10 flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-gray-200 bg-white/80 px-4 py-3 shadow-sm backdrop-blur-sm dark:border-slate-700 dark:bg-slate-900/85">
+        <h2 className="text-base font-semibold text-primary md:text-lg">Rush PCCM Calendar Assistant</h2>
+        <div className="flex items-center gap-2">
+          <ThemeToggle />
+          <Authenticated>
+            <SignOutButton />
+          </Authenticated>
+        </div>
       </header>
-      <main className="flex-1 flex items-start justify-center p-8">
+      <main className="flex-1 flex items-start justify-center p-6 md:p-8">
         <div className="w-full max-w-6xl mx-auto">
           <Content />
         </div>
@@ -42,12 +129,16 @@ function Content() {
   return (
     <div className="flex flex-col gap-8">
       <div className="text-center">
-        <h1 className="text-4xl md:text-5xl font-bold text-primary mb-4">Physician Clinical Scheduling</h1>
+        <h1 className="text-4xl md:text-5xl font-bold text-primary mb-4">
+          Rush PCCM Calendar Assistant
+        </h1>
         <Authenticated>
-          <p className="text-xl text-secondary">Welcome back, {loggedInUser?.email ?? "friend"}!</p>
+          <p className="text-xl text-secondary dark:text-slate-200">
+            Welcome back, {loggedInUser?.email ?? "friend"}!
+          </p>
         </Authenticated>
         <Unauthenticated>
-          <p className="text-xl text-secondary">Sign in to get started</p>
+          <p className="text-xl text-secondary dark:text-slate-200">Sign in to get started</p>
         </Unauthenticated>
       </div>
 
@@ -72,102 +163,132 @@ function Dashboard() {
     | "masterCalendar"
     | "auditLog"
   >("overview");
+  const loggedInUser = useQuery(api.auth.loggedInUser);
   const myProfile = useQuery(api.functions.physicians.getMyProfile);
   const physicianCount = useQuery(api.functions.physicians.getPhysicianCount);
   const linkCurrentUser = useMutation(api.functions.physicians.linkCurrentUserToPhysicianByEmail);
+  const isAdmin = loggedInUser?.role === "admin";
+  const isViewer = loggedInUser?.role === "viewer";
+  const hasPhysicianProfile = Boolean(myProfile);
 
   useEffect(() => {
-    if (myProfile && !myProfile.userId) {
+    if (hasPhysicianProfile && myProfile && !myProfile.userId) {
       void linkCurrentUser({}).catch(() => undefined);
     }
-  }, [linkCurrentUser, myProfile?._id, myProfile?.userId]);
+  }, [hasPhysicianProfile, linkCurrentUser, myProfile?._id, myProfile?.userId]);
 
-  const physicians = useQuery(api.functions.physicians.getPhysicians, myProfile ? {} : "skip");
-  const fiscalYears = useQuery(api.functions.fiscalYears.getFiscalYears, myProfile ? {} : "skip");
-  const currentFY = useQuery(api.functions.fiscalYears.getCurrentFiscalYear, myProfile ? {} : "skip");
+  const physicians = useQuery(api.functions.physicians.getPhysicians, loggedInUser ? {} : "skip");
+  const fiscalYears = useQuery(api.functions.fiscalYears.getFiscalYears, loggedInUser ? {} : "skip");
+  const currentFY = useQuery(api.functions.fiscalYears.getCurrentFiscalYear, loggedInUser ? {} : "skip");
 
   const myRequestBundle = useQuery(
     api.functions.scheduleRequests.getMyScheduleRequest,
-    myProfile ? {} : "skip",
+    hasPhysicianProfile ? {} : "skip",
+  );
+  const myRotationPreferenceBundle = useQuery(
+    api.functions.rotationPreferences.getMyRotationPreferences,
+    hasPhysicianProfile ? {} : "skip",
   );
   const currentWeekBundle = useQuery(
     api.functions.scheduleRequests.getCurrentFiscalYearWeeks,
-    myProfile ? {} : "skip",
+    loggedInUser ? {} : "skip",
   );
   const adminRequestBundle = useQuery(
     api.functions.scheduleRequests.getAdminScheduleRequests,
-    myProfile?.role === "admin" ? {} : "skip",
+    isAdmin ? {} : "skip",
   );
 
   const tradeOptions = useQuery(
     api.functions.tradeRequests.getTradeProposalOptions,
-    myProfile ? {} : "skip",
+    hasPhysicianProfile ? {} : "skip",
   );
-  const myTrades = useQuery(api.functions.tradeRequests.getMyTrades, myProfile ? {} : "skip");
+  const myTrades = useQuery(api.functions.tradeRequests.getMyTrades, hasPhysicianProfile ? {} : "skip");
   const adminTradeQueue = useQuery(
     api.functions.tradeRequests.getAdminTradeQueue,
-    myProfile?.role === "admin" ? {} : "skip",
+    isAdmin ? {} : "skip",
   );
   const adminRotationsBundle = useQuery(
     api.functions.rotations.getCurrentFiscalYearRotations,
-    myProfile?.role === "admin" ? {} : "skip",
+    isAdmin ? {} : "skip",
   );
   const adminClinicTypesBundle = useQuery(
     api.functions.clinicTypes.getCurrentFiscalYearClinicTypes,
-    myProfile?.role === "admin" ? {} : "skip",
+    isAdmin ? {} : "skip",
   );
   const adminCfteTargetsBundle = useQuery(
     api.functions.cfteTargets.getCurrentFiscalYearCfteTargets,
-    myProfile?.role === "admin" ? {} : "skip",
+    isAdmin ? {} : "skip",
   );
   const adminClinicAssignmentsBundle = useQuery(
     api.functions.physicianClinics.getCurrentFiscalYearPhysicianClinics,
-    myProfile?.role === "admin" ? {} : "skip",
+    isAdmin ? {} : "skip",
   );
   const adminMasterCalendarBundle = useQuery(
     api.functions.masterCalendar.getCurrentFiscalYearMasterCalendarDraft,
-    myProfile?.role === "admin" ? {} : "skip",
+    isAdmin ? {} : "skip",
+  );
+  const publishedMasterCalendarBundle = useQuery(
+    api.functions.masterCalendar.getCurrentFiscalYearPublishedMasterCalendar,
+    loggedInUser ? {} : "skip",
+  );
+  const adminRotationPreferenceBundle = useQuery(
+    api.functions.rotationPreferences.getAdminRotationPreferenceMatrix,
+    isAdmin ? {} : "skip",
   );
 
   if (
+    loggedInUser === undefined ||
     myProfile === undefined ||
     physicianCount === undefined ||
     physicians === undefined ||
     fiscalYears === undefined ||
     currentFY === undefined ||
-    myRequestBundle === undefined ||
+    (loggedInUser && publishedMasterCalendarBundle === undefined) ||
     currentWeekBundle === undefined ||
-    tradeOptions === undefined ||
-    myTrades === undefined ||
-    (myProfile?.role === "admin" && adminRotationsBundle === undefined) ||
-    (myProfile?.role === "admin" && adminClinicTypesBundle === undefined) ||
-    (myProfile?.role === "admin" && adminCfteTargetsBundle === undefined) ||
-    (myProfile?.role === "admin" && adminClinicAssignmentsBundle === undefined) ||
-    (myProfile?.role === "admin" && adminMasterCalendarBundle === undefined) ||
-    (myProfile?.role === "admin" && adminRequestBundle === undefined) ||
-    (myProfile?.role === "admin" && adminTradeQueue === undefined)
+    (hasPhysicianProfile && myRequestBundle === undefined) ||
+    (hasPhysicianProfile && myRotationPreferenceBundle === undefined) ||
+    (hasPhysicianProfile && tradeOptions === undefined) ||
+    (hasPhysicianProfile && myTrades === undefined) ||
+    (isAdmin && adminRotationsBundle === undefined) ||
+    (isAdmin && adminClinicTypesBundle === undefined) ||
+    (isAdmin && adminCfteTargetsBundle === undefined) ||
+    (isAdmin && adminClinicAssignmentsBundle === undefined) ||
+    (isAdmin && adminMasterCalendarBundle === undefined) ||
+    (isAdmin && adminRotationPreferenceBundle === undefined) ||
+    (isAdmin && adminRequestBundle === undefined) ||
+    (isAdmin && adminTradeQueue === undefined)
   ) {
     return <div>Loading...</div>;
   }
 
-  if (!myProfile) {
+  if (isViewer) {
+    return (
+      <ViewerDashboard
+        physicians={physicians}
+        fiscalYears={fiscalYears}
+        currentFY={currentFY}
+        publishedMasterCalendarBundle={publishedMasterCalendarBundle}
+      />
+    );
+  }
+
+  if (!hasPhysicianProfile && !isAdmin) {
     if (physicianCount === 0) {
       return <BootstrapSetup />;
     }
     return <NoPhysicianProfile />;
   }
 
-  const showAdminRotationsPage = myProfile.role === "admin" && adminPage === "rotations";
-  const showAdminClinicTypesPage = myProfile.role === "admin" && adminPage === "clinicTypes";
-  const showAdminCfteTargetsPage = myProfile.role === "admin" && adminPage === "cfteTargets";
-  const showAdminClinicAssignmentsPage =
-    myProfile.role === "admin" && adminPage === "clinicAssignments";
-  const showAdminMasterCalendarPage = myProfile.role === "admin" && adminPage === "masterCalendar";
-  const showAdminAuditLogPage = myProfile.role === "admin" && adminPage === "auditLog";
+  const showAdminRotationsPage = isAdmin && adminPage === "rotations";
+  const showAdminClinicTypesPage = isAdmin && adminPage === "clinicTypes";
+  const showAdminCfteTargetsPage = isAdmin && adminPage === "cfteTargets";
+  const showAdminClinicAssignmentsPage = isAdmin && adminPage === "clinicAssignments";
+  const showAdminMasterCalendarPage = isAdmin && adminPage === "masterCalendar";
+  const showAdminAuditLogPage = isAdmin && adminPage === "auditLog";
 
   return (
     <div className="space-y-6">
-      {myProfile.role === "admin" ? (
+      {isAdmin ? (
         <div className="bg-white border border-gray-200 rounded-lg p-2 inline-flex gap-2">
           <button
             className={`px-3 py-2 text-sm rounded ${adminPage === "overview" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}
@@ -228,6 +349,71 @@ function Dashboard() {
         <AdminAuditLogPage />
       ) : (
         <>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <MetricCard label="Physicians" value={String(physicians.length)} />
+            <MetricCard label="Fiscal Years" value={String(fiscalYears.length)} />
+            <MetricCard
+              label="Current Cycle"
+              value={currentFY ? currentFY.label : "Not set"}
+              subValue={currentFY ? currentFY.status : "No active fiscal year"}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-5 gap-6">
+            <div className="xl:col-span-3 space-y-6">
+              {hasPhysicianProfile ? (
+                <>
+                  <PhysicianRequestPanel
+                    myRequestBundle={myRequestBundle}
+                    myRotationPreferenceBundle={myRotationPreferenceBundle}
+                    currentWeekBundle={currentWeekBundle}
+                    myProfile={myProfile}
+                  />
+                  <TradePanel
+                    myPhysicianId={String(myProfile!._id)}
+                    tradeOptions={tradeOptions}
+                    myTrades={myTrades ?? []}
+                  />
+                </>
+              ) : (
+                <AdminNoPhysicianProfileNotice />
+              )}
+            </div>
+
+            <div className="xl:col-span-2 space-y-6">
+              {isAdmin ? (
+                <AdminWeekPreferenceImportPanel
+                  physicians={physicians}
+                  currentWeekBundle={currentWeekBundle}
+                />
+              ) : null}
+              {isAdmin ? <AdminRequestQueue adminRequestBundle={adminRequestBundle!} /> : null}
+              {isAdmin ? <AdminTradeQueue trades={adminTradeQueue ?? []} /> : null}
+              {isAdmin ? (
+                <AdminRotationPreferencePanel bundle={adminRotationPreferenceBundle} />
+              ) : null}
+              <AdminActions isAdmin={isAdmin} currentFY={currentFY} />
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function ViewerDashboard({
+  physicians,
+  fiscalYears,
+  currentFY,
+  publishedMasterCalendarBundle,
+}: {
+  physicians: any[];
+  fiscalYears: any[];
+  currentFY: any;
+  publishedMasterCalendarBundle: any;
+}) {
+  return (
+    <div className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <MetricCard label="Physicians" value={String(physicians.length)} />
         <MetricCard label="Fiscal Years" value={String(fiscalYears.length)} />
@@ -237,28 +423,68 @@ function Dashboard() {
           subValue={currentFY ? currentFY.status : "No active fiscal year"}
         />
       </div>
-
-      <div className="grid grid-cols-1 xl:grid-cols-5 gap-6">
-        <div className="xl:col-span-3 space-y-6">
-          <PhysicianRequestPanel
-            myRequestBundle={myRequestBundle}
-            currentWeekBundle={currentWeekBundle}
-          />
-          <TradePanel
-            myPhysicianId={String(myProfile._id)}
-            tradeOptions={tradeOptions}
-            myTrades={myTrades}
-          />
-        </div>
-
-        <div className="xl:col-span-2 space-y-6">
-          {myProfile.role === "admin" ? <AdminRequestQueue adminRequestBundle={adminRequestBundle!} /> : null}
-          {myProfile.role === "admin" ? <AdminTradeQueue trades={adminTradeQueue ?? []} /> : null}
-          <AdminActions isAdmin={myProfile.role === "admin"} currentFY={currentFY} />
-        </div>
+      <div className="bg-white p-6 rounded-lg shadow border border-gray-200">
+        <h3 className="text-lg font-semibold mb-2">Viewer Access</h3>
+        <p className="text-sm text-gray-700">
+          This account is in read-only mode. Scheduling requests, trades, and admin configuration are disabled.
+        </p>
       </div>
-        </>
-      )}
+      <div className="bg-white p-6 rounded-lg shadow border border-gray-200">
+        <h3 className="text-lg font-semibold mb-2">Master Calendar (Read-only)</h3>
+        {!publishedMasterCalendarBundle?.fiscalYear ? (
+          <p className="text-sm text-gray-700">No active fiscal year is configured.</p>
+        ) : !publishedMasterCalendarBundle?.calendar ? (
+          <p className="text-sm text-gray-700">
+            No published master calendar is available for {publishedMasterCalendarBundle.fiscalYear.label}.
+          </p>
+        ) : (
+          <div className="overflow-x-auto border border-gray-200 rounded-md">
+            <table className="w-full text-sm min-w-[900px]">
+              <thead className="bg-gray-50 text-gray-600">
+                <tr>
+                  <th className="text-left px-3 py-2">Week</th>
+                  {(publishedMasterCalendarBundle.rotations ?? []).map((rotation: any) => (
+                    <th key={String(rotation._id)} className="text-left px-3 py-2">
+                      <div className="font-medium">{rotation.abbreviation}</div>
+                      <div className="text-[11px] text-gray-500">{rotation.name}</div>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {(publishedMasterCalendarBundle.grid ?? []).map((row: any) => (
+                  <tr key={String(row.weekId)} className="border-t border-gray-100 align-top">
+                    <td className="px-3 py-2 whitespace-nowrap">
+                      <div className="font-medium">W{row.weekNumber}</div>
+                      <div className="text-[11px] text-gray-500">
+                        {row.startDate} to {row.endDate}
+                      </div>
+                    </td>
+                    {(row.cells ?? []).map((cell: any) => (
+                      <td key={String(cell.rotationId)} className="px-3 py-2">
+                        <div className="font-medium">{cell.physicianInitials ?? "--"}</div>
+                        <div className="text-[11px] text-gray-500">{cell.physicianName ?? "Unassigned"}</div>
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AdminNoPhysicianProfileNotice() {
+  return (
+    <div className="bg-white p-6 rounded-lg shadow border border-gray-200">
+      <h3 className="text-lg font-semibold mb-2">Admin Access (No Physician Profile)</h3>
+      <p className="text-sm text-gray-700">
+        This admin account is not linked to a physician profile. Physician self-service workflows are hidden,
+        but admin controls remain available.
+      </p>
     </div>
   );
 }
@@ -291,6 +517,9 @@ function AdminRotationsPage({ bundle }: { bundle: any }) {
           <p className="text-sm text-gray-600">
             {bundle.fiscalYear.label} ({bundle.fiscalYear.status})
           </p>
+          <p className="text-xs text-gray-500 mt-1">
+            Canonical inpatient rotations: Pulm, MICU 1, MICU 2, AICU, LTAC, ROPH, IP, PFT
+          </p>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -300,7 +529,7 @@ function AdminRotationsPage({ bundle }: { bundle: any }) {
               value={name}
               onChange={(e) => setName(e.target.value)}
               className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
-              placeholder="MICU 1"
+              placeholder="Pulm"
               disabled={isSaving}
             />
           </label>
@@ -310,7 +539,7 @@ function AdminRotationsPage({ bundle }: { bundle: any }) {
               value={abbreviation}
               onChange={(e) => setAbbreviation(e.target.value)}
               className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
-              placeholder="MICU1"
+              placeholder="PULM"
               disabled={isSaving}
             />
           </label>
@@ -983,10 +1212,14 @@ function AdminMasterCalendarPage({ bundle }: { bundle: any }) {
   const createDraft = useMutation(api.functions.masterCalendar.createCurrentFiscalYearMasterCalendarDraft);
   const autoAssign = useMutation(api.functions.masterCalendar.autoAssignCurrentFiscalYearDraft);
   const assignDraftCell = useMutation(api.functions.masterCalendar.assignCurrentFiscalYearDraftCell);
+  const calendarEventsBundle = useQuery(api.functions.calendarEvents.getCurrentFiscalYearCalendarEvents, {});
   const [isCreating, setIsCreating] = useState(false);
   const [isAutoAssigning, setIsAutoAssigning] = useState(false);
   const [assigningCellKey, setAssigningCellKey] = useState<string | null>(null);
   const [draggingPayload, setDraggingPayload] = useState<{ physicianId: string; weekId: string } | null>(null);
+  const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+  const [isExporting, setIsExporting] = useState<"csv" | "xlsx" | "ics" | null>(null);
+  const exportMenuRef = useRef<HTMLDivElement | null>(null);
 
   if (!bundle?.fiscalYear) {
     return (
@@ -1022,6 +1255,22 @@ function AdminMasterCalendarPage({ bundle }: { bundle: any }) {
     );
   }, [bundle.cfteSummary]);
 
+  useEffect(() => {
+    if (!isExportMenuOpen) return;
+
+    const handleDocumentMouseDown = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (exportMenuRef.current?.contains(target)) return;
+      setIsExportMenuOpen(false);
+    };
+
+    document.addEventListener("mousedown", handleDocumentMouseDown);
+    return () => {
+      document.removeEventListener("mousedown", handleDocumentMouseDown);
+    };
+  }, [isExportMenuOpen]);
+
   const getAvailabilityClasses = (availability: string) => {
     if (availability === "green") return "bg-emerald-100 text-emerald-800 border-emerald-200";
     if (availability === "red") return "bg-rose-100 text-rose-800 border-rose-200";
@@ -1050,6 +1299,133 @@ function AdminMasterCalendarPage({ bundle }: { bundle: any }) {
     }
   };
 
+  const buildExportData = (): MasterCalendarExportData => {
+    const weekById = new Map<string, any>(weeks.map((week: any) => [String(week._id), week]));
+    const rotationById = new Map<string, any>(
+      rotations.map((rotation: any) => [String(rotation._id), rotation]),
+    );
+    const physicianById = new Map<string, any>(
+      physicians.map((physician: any) => [String(physician._id), physician]),
+    );
+
+    const assignments = [];
+    for (const row of bundle.grid ?? []) {
+      const weekId = String(row.weekId);
+      const week = weekById.get(weekId);
+      if (!week) continue;
+
+      for (const cell of row.cells ?? []) {
+        const physicianId = cell.physicianId ? String(cell.physicianId) : null;
+        if (!physicianId) continue;
+
+        const physician = physicianById.get(physicianId);
+        const rotation = rotationById.get(String(cell.rotationId));
+        if (!physician || !rotation) continue;
+
+        assignments.push({
+          physicianId,
+          physicianName: String(physician.fullName),
+          physicianInitials: String(physician.initials),
+          weekId,
+          weekNumber: Number(week.weekNumber),
+          weekStartDate: String(week.startDate),
+          weekEndDate: String(week.endDate),
+          rotationId: String(rotation._id),
+          rotationName: String(rotation.name),
+          rotationAbbreviation: rotation.abbreviation ? String(rotation.abbreviation) : "",
+        });
+      }
+    }
+
+    const calendarEvents = (calendarEventsBundle?.events ?? []).map((event: any) => {
+      const week = event.weekId ? weekById.get(String(event.weekId)) : null;
+      return {
+        id: String(event._id),
+        weekId: event.weekId ? String(event.weekId) : null,
+        weekNumber: week ? Number(week.weekNumber) : null,
+        date: String(event.date),
+        name: String(event.name),
+        category: String(event.category),
+        source: event.source ? String(event.source) : null,
+        isApproved: typeof event.isApproved === "boolean" ? event.isApproved : null,
+        isVisible: typeof event.isVisible === "boolean" ? event.isVisible : null,
+      };
+    });
+
+    return {
+      fiscalYearLabel: String(bundle.fiscalYear?.label ?? "fiscal-year"),
+      generatedAtMs: Date.now(),
+      physicians: physicians.map((physician: any) => ({
+        id: String(physician._id),
+        fullName: String(physician.fullName),
+        initials: String(physician.initials),
+      })),
+      weeks: weeks.map((week: any) => ({
+        id: String(week._id),
+        weekNumber: Number(week.weekNumber),
+        startDate: String(week.startDate),
+        endDate: String(week.endDate),
+      })),
+      rotations: rotations.map((rotation: any) => ({
+        id: String(rotation._id),
+        name: String(rotation.name),
+        abbreviation: rotation.abbreviation ? String(rotation.abbreviation) : "",
+      })),
+      assignments,
+      calendarEvents,
+    };
+  };
+
+  const handleExport = (format: "csv" | "xlsx" | "ics") => {
+    if (!hasDraft) {
+      toast.error("Create a draft calendar before exporting");
+      return;
+    }
+    if (calendarEventsBundle === undefined) {
+      toast.error("Calendar events are still loading. Please try again.");
+      return;
+    }
+
+    setIsExporting(format);
+    setIsExportMenuOpen(false);
+    try {
+      const exportData = buildExportData();
+      const fiscalYearToken = String(bundle.fiscalYear?.label ?? "fiscal-year")
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+      const baseFileName = `master-calendar-${fiscalYearToken || "fiscal-year"}`;
+
+      if (format === "csv") {
+        const csv = buildMasterCalendarAssignmentCsv(exportData);
+        downloadBlobFile(`${baseFileName}.csv`, new Blob([csv], { type: "text/csv;charset=utf-8" }));
+        toast.success("Exported CSV assignment list");
+        return;
+      }
+
+      if (format === "xlsx") {
+        const bytes = buildMasterCalendarExportXlsxBytes(exportData);
+        downloadBlobFile(
+          `${baseFileName}.xlsx`,
+          new Blob([bytes], {
+            type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          }),
+        );
+        toast.success("Exported Excel workbook");
+        return;
+      }
+
+      const ics = buildMasterCalendarIcs(exportData);
+      downloadBlobFile(`${baseFileName}.ics`, new Blob([ics], { type: "text/calendar;charset=utf-8" }));
+      toast.success("Exported ICS calendar");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to export calendar");
+    } finally {
+      setIsExporting(null);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm space-y-3">
@@ -1064,25 +1440,64 @@ function AdminMasterCalendarPage({ bundle }: { bundle: any }) {
               <p className="text-xs text-gray-500 mt-1">Draft v{bundle.calendar.version}</p>
             ) : null}
           </div>
-          {!hasDraft ? (
-            <button
-              onClick={async () => {
-                setIsCreating(true);
-                try {
-                  const result = await createDraft({});
-                  toast.success(result.message);
-                } catch (error) {
-                  toast.error(error instanceof Error ? error.message : "Failed to create draft");
-                } finally {
-                  setIsCreating(false);
-                }
-              }}
-              disabled={isCreating}
-              className="px-3 py-2 text-sm rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
-            >
-              {isCreating ? "Creating..." : "Create Draft Calendar"}
-            </button>
-          ) : null}
+          <div className="flex items-center gap-2">
+            {!hasDraft ? (
+              <button
+                onClick={async () => {
+                  setIsCreating(true);
+                  try {
+                    const result = await createDraft({});
+                    toast.success(result.message);
+                  } catch (error) {
+                    toast.error(error instanceof Error ? error.message : "Failed to create draft");
+                  } finally {
+                    setIsCreating(false);
+                  }
+                }}
+                disabled={isCreating}
+                className="px-3 py-2 text-sm rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                {isCreating ? "Creating..." : "Create Draft Calendar"}
+              </button>
+            ) : null}
+            {hasDraft ? (
+              <div ref={exportMenuRef} className="relative">
+                <button
+                  onClick={() => setIsExportMenuOpen((prev) => !prev)}
+                  disabled={isExporting !== null || calendarEventsBundle === undefined}
+                  className="px-3 py-2 text-sm rounded border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                >
+                  {isExporting
+                    ? `Exporting ${isExporting.toUpperCase()}...`
+                    : calendarEventsBundle === undefined
+                      ? "Loading events..."
+                      : "Export"}
+                </button>
+                {isExportMenuOpen ? (
+                  <div className="absolute right-0 mt-1 w-56 rounded-md border border-gray-200 bg-white shadow-lg z-20 overflow-hidden">
+                    <button
+                      onClick={() => handleExport("csv")}
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
+                    >
+                      CSV - Assignment List
+                    </button>
+                    <button
+                      onClick={() => handleExport("xlsx")}
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 border-t border-gray-100"
+                    >
+                      Excel (.xlsx) - 3 Sheets
+                    </button>
+                    <button
+                      onClick={() => handleExport("ics")}
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 border-t border-gray-100"
+                    >
+                      ICS - Calendar Events
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
         </div>
       </div>
 
@@ -1571,13 +1986,21 @@ function MetricCard({ label, value, subValue }: { label: string; value: string; 
 
 function PhysicianRequestPanel({
   myRequestBundle,
+  myRotationPreferenceBundle,
   currentWeekBundle,
+  myProfile,
 }: {
   myRequestBundle: any;
+  myRotationPreferenceBundle: any;
   currentWeekBundle: any;
+  myProfile: any;
 }) {
   const saveMyScheduleRequest = useMutation(api.functions.scheduleRequests.saveMyScheduleRequest);
   const setMyWeekPreference = useMutation(api.functions.scheduleRequests.setMyWeekPreference);
+  const importWeekPreferences = useMutation(
+    api.functions.scheduleRequests.importWeekPreferencesFromUpload,
+  );
+  const setMyRotationPreference = useMutation(api.functions.rotationPreferences.setMyRotationPreference);
   const submitMyScheduleRequest = useMutation(api.functions.scheduleRequests.submitMyScheduleRequest);
 
   const [specialRequests, setSpecialRequests] = useState("");
@@ -1586,7 +2009,19 @@ function PhysicianRequestPanel({
   const [reasonText, setReasonText] = useState("");
   const [savingNotes, setSavingNotes] = useState(false);
   const [savingWeek, setSavingWeek] = useState(false);
+  const [savingRotation, setSavingRotation] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [parsingImport, setParsingImport] = useState(false);
+  const [importingWeeks, setImportingWeeks] = useState(false);
+  const [importFileName, setImportFileName] = useState("");
+  const [parsedImport, setParsedImport] = useState<ParsedUploadPayload | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [selectedRotationId, setSelectedRotationId] = useState("");
+  const [rotationMode, setRotationMode] = useState<
+    "do_not_assign" | "deprioritize" | "willing" | "preferred"
+  >("willing");
+  const [rotationPreferenceRank, setRotationPreferenceRank] = useState("1");
+  const [rotationNote, setRotationNote] = useState("");
 
   useEffect(() => {
     setSpecialRequests(myRequestBundle?.request?.specialRequests ?? "");
@@ -1598,6 +2033,12 @@ function PhysicianRequestPanel({
     }
   }, [currentWeekBundle?.weeks, selectedWeekId]);
 
+  useEffect(() => {
+    if (!selectedRotationId && (myRotationPreferenceBundle?.rotations?.length ?? 0) > 0) {
+      setSelectedRotationId(String(myRotationPreferenceBundle.rotations[0].rotation._id));
+    }
+  }, [myRotationPreferenceBundle?.rotations, selectedRotationId]);
+
   const preferenceByWeek = useMemo(() => {
     const map = new Map<string, any>();
     for (const preference of myRequestBundle?.weekPreferences ?? []) {
@@ -1607,6 +2048,17 @@ function PhysicianRequestPanel({
   }, [myRequestBundle?.weekPreferences]);
 
   const selectedPreference = selectedWeekId ? preferenceByWeek.get(selectedWeekId) : undefined;
+  const rotationPreferenceByRotationId = useMemo(() => {
+    const map = new Map<string, any>();
+    for (const row of myRotationPreferenceBundle?.rotations ?? []) {
+      map.set(String(row.rotation._id), row.preference ?? null);
+    }
+    return map;
+  }, [myRotationPreferenceBundle?.rotations]);
+
+  const selectedRotationPreference = selectedRotationId
+    ? rotationPreferenceByRotationId.get(selectedRotationId)
+    : null;
 
   useEffect(() => {
     if (selectedPreference) {
@@ -1618,7 +2070,113 @@ function PhysicianRequestPanel({
     }
   }, [selectedWeekId, selectedPreference]);
 
+  useEffect(() => {
+    const selected = selectedRotationPreference;
+    if (selected?.avoid) {
+      setRotationMode("do_not_assign");
+      setRotationPreferenceRank("1");
+      setRotationNote(selected.avoidReason ?? "");
+      return;
+    }
+    if (selected?.deprioritize) {
+      setRotationMode("deprioritize");
+      setRotationPreferenceRank("1");
+      setRotationNote("");
+      return;
+    }
+    if (selected?.preferenceRank !== undefined && selected?.preferenceRank !== null) {
+      setRotationMode("preferred");
+      setRotationPreferenceRank(String(selected.preferenceRank));
+      setRotationNote("");
+      return;
+    }
+    setRotationMode("willing");
+    setRotationPreferenceRank("1");
+    setRotationNote("");
+  }, [selectedRotationId, selectedRotationPreference]);
+
   const canEdit = currentWeekBundle?.fiscalYear?.status === "collecting";
+  const requiredRotationCount = myRotationPreferenceBundle?.requiredCount ?? 0;
+  const configuredRotationCount = myRotationPreferenceBundle?.configuredCount ?? 0;
+  const missingRotationNames: string[] = myRotationPreferenceBundle?.missingRotationNames ?? [];
+  const isRotationMatrixComplete =
+    myRotationPreferenceBundle?.isComplete ??
+    (requiredRotationCount > 0 && configuredRotationCount === requiredRotationCount);
+  const canSubmitRequest = canEdit && isRotationMatrixComplete;
+  const importTargetPhysician: ImportTargetPhysician | null = myProfile
+    ? {
+        _id: String(myProfile._id),
+        firstName: myProfile.firstName,
+        lastName: myProfile.lastName,
+        initials: myProfile.initials,
+      }
+    : null;
+
+  const importValidationError = useMemo(
+    () =>
+      validateParsedUpload({
+        payload: parsedImport,
+        fiscalYearLabel: currentWeekBundle?.fiscalYear?.label,
+        targetPhysician: importTargetPhysician,
+        fiscalWeeks: currentWeekBundle?.weeks ?? [],
+      }),
+    [
+      currentWeekBundle?.fiscalYear?.label,
+      currentWeekBundle?.weeks,
+      importTargetPhysician,
+      parsedImport,
+    ],
+  );
+
+  const handleParseImportFile = async (file: File | null | undefined) => {
+    if (!file) return;
+
+    setParsingImport(true);
+    setImportError(null);
+    setParsedImport(null);
+    setImportFileName(file.name);
+
+    try {
+      const parsed = await parseScheduleImportFile(file);
+      setParsedImport(parsed);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to parse upload file";
+      setImportError(message);
+      toast.error(message);
+    } finally {
+      setParsingImport(false);
+    }
+  };
+
+  const handleImportWeekPreferencesFromFile = async () => {
+    if (!parsedImport) {
+      toast.error("Choose a file before importing");
+      return;
+    }
+    if (importValidationError) {
+      toast.error(importValidationError);
+      return;
+    }
+
+    setImportingWeeks(true);
+    try {
+      const result = await importWeekPreferences({
+        sourceFileName: parsedImport.sourceFileName,
+        sourceDoctorToken: parsedImport.sourceDoctorToken,
+        sourceFiscalYearLabel: parsedImport.sourceFiscalYearLabel,
+        weeks: parsedImport.weeks.map((week) => ({
+          weekStart: week.weekStart,
+          weekEnd: week.weekEnd ?? undefined,
+          availability: week.availability,
+        })),
+      });
+      toast.success(result.message);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to import week preferences");
+    } finally {
+      setImportingWeeks(false);
+    }
+  };
 
   const handleSaveNotes = async () => {
     setSavingNotes(true);
@@ -1664,6 +2222,37 @@ function PhysicianRequestPanel({
       toast.error(error instanceof Error ? error.message : "Failed to submit request");
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleSaveRotationPreference = async () => {
+    if (!selectedRotationId) {
+      toast.error("Please select a rotation");
+      return;
+    }
+
+    const parsedRank = Number(rotationPreferenceRank);
+    if (rotationMode === "preferred") {
+      if (!Number.isInteger(parsedRank) || parsedRank < 1) {
+        toast.error("Preferred rotations require a positive integer rank");
+        return;
+      }
+    }
+
+    setSavingRotation(true);
+    try {
+      await setMyRotationPreference({
+        rotationId: selectedRotationId as any,
+        avoid: rotationMode === "do_not_assign",
+        deprioritize: rotationMode === "deprioritize",
+        preferenceRank: rotationMode === "preferred" ? parsedRank : undefined,
+        avoidReason: rotationMode === "do_not_assign" ? rotationNote.trim() || undefined : undefined,
+      });
+      toast.success("Rotation preference saved");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to save rotation preference");
+    } finally {
+      setSavingRotation(false);
     }
   };
 
@@ -1814,15 +2403,247 @@ function PhysicianRequestPanel({
         </div>
       </section>
 
+      <section className="space-y-3">
+        <h4 className="text-sm font-semibold text-gray-800">Import Week Preferences (CSV/XLSX)</h4>
+        <p className="text-xs text-gray-600">
+          Upload a completed FY template (`.xlsx`) or CSV (`week_start`, `preference`) to fully
+          replace week preferences for this cycle.
+        </p>
+
+        <label className="text-sm block">
+          <span className="block text-xs text-gray-600 mb-1">Upload File</span>
+          <input
+            type="file"
+            accept=".xlsx,.csv"
+            disabled={!canEdit || parsingImport || importingWeeks}
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              void handleParseImportFile(file);
+              event.target.value = "";
+            }}
+            className="block w-full text-sm text-gray-700 file:mr-4 file:rounded file:border-0 file:bg-gray-100 file:px-3 file:py-2 file:text-sm file:font-medium file:text-gray-700 hover:file:bg-gray-200 disabled:opacity-50"
+          />
+        </label>
+
+        {importFileName ? (
+          <p className="text-xs text-gray-600">
+            Selected file: <span className="font-medium">{importFileName}</span>
+          </p>
+        ) : null}
+
+        {parsingImport ? (
+          <div className="rounded border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
+            Parsing upload...
+          </div>
+        ) : null}
+
+        {importError ? (
+          <div className="rounded border border-rose-300 bg-rose-50 p-3 text-sm text-rose-900">
+            {importError}
+          </div>
+        ) : null}
+
+        {parsedImport ? (
+          <div className="rounded border border-gray-200 bg-gray-50 p-3 space-y-2">
+            <div className="text-xs text-gray-700">
+              <span className="font-medium">Doctor token:</span> {parsedImport.sourceDoctorToken}
+            </div>
+            <div className="text-xs text-gray-700">
+              <span className="font-medium">Fiscal year:</span> {parsedImport.sourceFiscalYearLabel}
+            </div>
+            <div className="text-xs text-gray-700">
+              <span className="font-medium">Weeks parsed:</span> {parsedImport.weeks.length}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {(["red", "yellow", "green", "unset"] as UploadAvailability[]).map((value) => (
+                <span
+                  key={value}
+                  className="inline-flex text-xs px-2 py-1 rounded bg-white border border-gray-200 text-gray-700"
+                >
+                  {value}: {parsedImport.counts[value]}
+                </span>
+              ))}
+            </div>
+            {importValidationError ? (
+              <div className="rounded border border-rose-300 bg-rose-50 p-2 text-xs text-rose-900">
+                {importValidationError}
+              </div>
+            ) : (
+              <div className="rounded border border-emerald-200 bg-emerald-50 p-2 text-xs text-emerald-800">
+                Upload validation passed. Import will replace this cycle's week preferences.
+              </div>
+            )}
+          </div>
+        ) : null}
+
+        <div className="flex justify-end">
+          <button
+            onClick={handleImportWeekPreferencesFromFile}
+            disabled={
+              !canEdit ||
+              parsingImport ||
+              importingWeeks ||
+              !parsedImport ||
+              Boolean(importValidationError)
+            }
+            className="px-3 py-2 text-sm rounded bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
+          >
+            {importingWeeks ? "Importing..." : "Import Preferences"}
+          </button>
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <h4 className="text-sm font-semibold text-gray-800">
+          Inpatient Rotation Preferences (Do Not Assign vs Do Not Prefer)
+        </h4>
+        <div className="rounded border border-gray-200 bg-gray-50 p-3 text-sm">
+          <div className="font-medium text-gray-900">
+            Completion: {configuredRotationCount}/{requiredRotationCount} rotations configured
+          </div>
+          <div className="mt-1 text-gray-700">
+            Admin approval status:{" "}
+            <StatusBadge status={myRotationPreferenceBundle?.approvalStatus ?? "pending"} />
+          </div>
+          {missingRotationNames.length > 0 ? (
+            <div className="mt-1 text-amber-800">
+              Missing: {missingRotationNames.join(", ")}
+            </div>
+          ) : (
+            <div className="mt-1 text-emerald-700">
+              Complete. Awaiting admin final approval for calendar mapping.
+            </div>
+          )}
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <label className="text-sm">
+            <span className="block text-xs text-gray-600 mb-1">Rotation</span>
+            <select
+              value={selectedRotationId}
+              onChange={(e) => setSelectedRotationId(e.target.value)}
+              disabled={!canEdit || savingRotation}
+              className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+            >
+              {(myRotationPreferenceBundle?.rotations ?? []).map((row: any) => (
+                <option key={String(row.rotation._id)} value={String(row.rotation._id)}>
+                  {row.rotation.name} ({row.rotation.abbreviation})
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="text-sm">
+            <span className="block text-xs text-gray-600 mb-1">Preference Type</span>
+            <select
+              value={rotationMode}
+              onChange={(e) => setRotationMode(e.target.value as any)}
+              disabled={!canEdit || savingRotation}
+              className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+            >
+              <option value="willing">Willing (neutral)</option>
+              <option value="preferred">Preferred</option>
+              <option value="deprioritize">Do Not Prefer (can do, assign less often)</option>
+              <option value="do_not_assign">Do Not Assign (cannot do this rotation)</option>
+            </select>
+          </label>
+
+          {rotationMode === "preferred" ? (
+            <label className="text-sm">
+              <span className="block text-xs text-gray-600 mb-1">Preference Rank</span>
+              <input
+                type="number"
+                min="1"
+                step="1"
+                value={rotationPreferenceRank}
+                onChange={(e) => setRotationPreferenceRank(e.target.value)}
+                disabled={!canEdit || savingRotation}
+                className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+              />
+            </label>
+          ) : null}
+
+          {rotationMode === "do_not_assign" ? (
+            <label className="text-sm md:col-span-2">
+              <span className="block text-xs text-gray-600 mb-1">Reason (optional)</span>
+              <input
+                value={rotationNote}
+                onChange={(e) => setRotationNote(e.target.value)}
+                disabled={!canEdit || savingRotation}
+                placeholder="Optional note explaining why this rotation is excluded"
+                className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+              />
+            </label>
+          ) : null}
+        </div>
+
+        <div className="flex justify-end">
+          <button
+            onClick={handleSaveRotationPreference}
+            disabled={!canEdit || savingRotation}
+            className="px-3 py-2 text-sm rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            {savingRotation ? "Saving..." : "Save Rotation Preference"}
+          </button>
+        </div>
+
+        <div className="border border-gray-200 rounded-md overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 text-gray-600">
+              <tr>
+                <th className="text-left px-3 py-2">Rotation</th>
+                <th className="text-left px-3 py-2">Preference</th>
+                <th className="text-left px-3 py-2">Note</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(myRotationPreferenceBundle?.rotations ?? []).length === 0 ? (
+                <tr>
+                  <td className="px-3 py-3 text-gray-500" colSpan={3}>
+                    No active rotations available.
+                  </td>
+                </tr>
+              ) : (
+                (myRotationPreferenceBundle.rotations ?? []).map((row: any) => {
+                  const preference = row.preference;
+                  let label = preference ? "Willing" : "Not Set";
+                  if (preference?.avoid) {
+                    label = "Do Not Assign";
+                  } else if (preference?.deprioritize) {
+                    label = "Do Not Prefer";
+                  } else if (preference?.preferenceRank !== undefined && preference?.preferenceRank !== null) {
+                    label = `Preferred (Rank ${preference.preferenceRank})`;
+                  }
+
+                  return (
+                    <tr key={String(row.rotation._id)} className="border-t border-gray-100">
+                      <td className="px-3 py-2">
+                        {row.rotation.name} ({row.rotation.abbreviation})
+                      </td>
+                      <td className="px-3 py-2">{label}</td>
+                      <td className="px-3 py-2 text-gray-700">{preference?.avoidReason ?? "-"}</td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
       <div className="flex justify-end">
         <button
           onClick={handleSubmit}
-          disabled={!canEdit || submitting}
+          disabled={!canSubmitRequest || submitting}
           className="px-4 py-2 text-sm rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
         >
           {submitting ? "Submitting..." : "Submit Request"}
         </button>
       </div>
+      {!isRotationMatrixComplete ? (
+        <p className="text-xs text-amber-800">
+          Submit is locked until every active rotation has an explicit preference.
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -2051,6 +2872,576 @@ function TradePanel({
   );
 }
 
+function AdminRotationPreferencePanel({ bundle }: { bundle: any }) {
+  const setByAdmin = useMutation(api.functions.rotationPreferences.setPhysicianRotationPreferenceByAdmin);
+  const approveForMapping = useMutation(
+    api.functions.rotationPreferences.approveRotationPreferencesForMapping,
+  );
+  const [selectedPhysicianId, setSelectedPhysicianId] = useState("");
+  const [selectedRotationId, setSelectedRotationId] = useState("");
+  const [mode, setMode] = useState<"do_not_assign" | "deprioritize" | "willing" | "preferred">("willing");
+  const [rank, setRank] = useState("1");
+  const [note, setNote] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [approving, setApproving] = useState(false);
+
+  useEffect(() => {
+    if (!selectedPhysicianId && (bundle?.physicians?.length ?? 0) > 0) {
+      setSelectedPhysicianId(String(bundle.physicians[0]._id));
+    }
+  }, [bundle?.physicians, selectedPhysicianId]);
+
+  useEffect(() => {
+    if (!selectedRotationId && (bundle?.rotations?.length ?? 0) > 0) {
+      setSelectedRotationId(String(bundle.rotations[0]._id));
+    }
+  }, [bundle?.rotations, selectedRotationId]);
+
+  const selectedRow = useMemo(() => {
+    return (bundle?.rows ?? []).find(
+      (row: any) => String(row.physicianId) === selectedPhysicianId,
+    );
+  }, [bundle?.rows, selectedPhysicianId]);
+
+  const selectedPreference = useMemo(() => {
+    if (!selectedRow) return null;
+    const match = (selectedRow.preferences ?? []).find(
+      (entry: any) => String(entry.rotationId) === selectedRotationId,
+    );
+    return match?.preference ?? null;
+  }, [selectedRow, selectedRotationId]);
+
+  useEffect(() => {
+    if (selectedPreference?.avoid) {
+      setMode("do_not_assign");
+      setRank("1");
+      setNote(selectedPreference.avoidReason ?? "");
+      return;
+    }
+    if (selectedPreference?.deprioritize) {
+      setMode("deprioritize");
+      setRank("1");
+      setNote("");
+      return;
+    }
+    if (
+      selectedPreference?.preferenceRank !== undefined &&
+      selectedPreference?.preferenceRank !== null
+    ) {
+      setMode("preferred");
+      setRank(String(selectedPreference.preferenceRank));
+      setNote("");
+      return;
+    }
+    setMode("willing");
+    setRank("1");
+    setNote("");
+  }, [selectedPreference, selectedPhysicianId, selectedRotationId]);
+
+  if (!bundle?.fiscalYear) {
+    return (
+      <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
+        <h4 className="font-semibold mb-2">Rotation Preference Alignment</h4>
+        <p className="text-sm text-gray-600">No active fiscal year found.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm space-y-3">
+      <div>
+        <h4 className="font-semibold">Rotation Preference Alignment</h4>
+        <p className="text-xs text-gray-600">
+          Admin can finalize physician preference mode before heatmap mapping.
+        </p>
+      </div>
+
+      {!bundle.rotationConfiguration?.isValid ? (
+        <div className="rounded border border-rose-300 bg-rose-50 p-2 text-xs text-rose-900">
+          {bundle.rotationConfiguration?.blockingReason}
+          {bundle.rotationConfiguration?.missingRequiredNames?.length > 0 ? (
+            <div className="mt-1">
+              Missing required rotations: {bundle.rotationConfiguration.missingRequiredNames.join(", ")}
+            </div>
+          ) : null}
+          {bundle.rotationConfiguration?.unexpectedNames?.length > 0 ? (
+            <div className="mt-1">
+              Unexpected active rotations: {bundle.rotationConfiguration.unexpectedNames.join(", ")}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      <div className="grid grid-cols-3 gap-2 text-center">
+        <MiniMetric label="Required/MD" value={String(bundle.summary?.requiredCountPerPhysician ?? 0)} />
+        <MiniMetric label="Ready" value={String(bundle.summary?.readyForMappingCount ?? 0)} />
+        <MiniMetric label="Pending" value={String(bundle.summary?.pendingApprovalCount ?? 0)} />
+      </div>
+
+      <label className="text-sm block">
+        <span className="block text-xs text-gray-600 mb-1">Physician</span>
+        <select
+          value={selectedPhysicianId}
+          onChange={(e) => setSelectedPhysicianId(e.target.value)}
+          className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+          disabled={saving}
+        >
+          {(bundle.physicians ?? []).map((physician: any) => (
+            <option key={String(physician._id)} value={String(physician._id)}>
+              {physician.fullName} ({physician.initials})
+            </option>
+          ))}
+        </select>
+      </label>
+
+      {selectedRow ? (
+        <div className="rounded border border-gray-200 p-2 text-xs space-y-1 bg-gray-50">
+          <div className="flex items-center justify-between">
+            <span>
+              Completion: {selectedRow.configuredCount}/{selectedRow.requiredCount}
+            </span>
+            <StatusBadge status={selectedRow.approvalStatus ?? "pending"} />
+          </div>
+          {(selectedRow.missingRotationNames ?? []).length > 0 ? (
+            <div className="text-amber-800">
+              Missing: {(selectedRow.missingRotationNames ?? []).join(", ")}
+            </div>
+          ) : null}
+          {(selectedRow.blockingReasons ?? []).length > 0 ? (
+            <div className="text-gray-700">{(selectedRow.blockingReasons ?? []).join(" ")}</div>
+          ) : (
+            <div className="text-emerald-700">Ready for mapping.</div>
+          )}
+        </div>
+      ) : null}
+
+      <label className="text-sm block">
+        <span className="block text-xs text-gray-600 mb-1">Rotation</span>
+        <select
+          value={selectedRotationId}
+          onChange={(e) => setSelectedRotationId(e.target.value)}
+          className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+          disabled={saving}
+        >
+          {(bundle.rotations ?? []).map((rotation: any) => (
+            <option key={String(rotation._id)} value={String(rotation._id)}>
+              {rotation.name} ({rotation.abbreviation})
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <label className="text-sm block">
+        <span className="block text-xs text-gray-600 mb-1">Mode</span>
+        <select
+          value={mode}
+          onChange={(e) => setMode(e.target.value as any)}
+          className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+          disabled={saving}
+        >
+          <option value="willing">Willing (neutral)</option>
+          <option value="preferred">Preferred</option>
+          <option value="deprioritize">Do Not Prefer (can do, assign less often)</option>
+          <option value="do_not_assign">Do Not Assign (cannot do this rotation)</option>
+        </select>
+      </label>
+
+      {mode === "preferred" ? (
+        <label className="text-sm block">
+          <span className="block text-xs text-gray-600 mb-1">Rank</span>
+          <input
+            type="number"
+            min="1"
+            step="1"
+            value={rank}
+            onChange={(e) => setRank(e.target.value)}
+            className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+            disabled={saving}
+          />
+        </label>
+      ) : null}
+
+      {mode === "do_not_assign" ? (
+        <label className="text-sm block">
+          <span className="block text-xs text-gray-600 mb-1">Reason (optional)</span>
+          <input
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+            disabled={saving}
+            placeholder="Optional admin note"
+          />
+        </label>
+      ) : null}
+
+      <div className="flex items-center justify-end gap-2">
+        <button
+          onClick={async () => {
+            if (!selectedPhysicianId) {
+              toast.error("Select a physician");
+              return;
+            }
+            if (!bundle.rotationConfiguration?.isValid) {
+              toast.error(bundle.rotationConfiguration?.blockingReason ?? "Rotation configuration is invalid");
+              return;
+            }
+            if (!selectedRow?.requestId) {
+              toast.error("Cannot approve: no schedule request exists yet");
+              return;
+            }
+            if ((selectedRow?.missingRotationNames ?? []).length > 0) {
+              toast.error("Cannot approve until every active rotation has a saved preference");
+              return;
+            }
+
+            setApproving(true);
+            try {
+              await approveForMapping({
+                physicianId: selectedPhysicianId as any,
+              });
+              toast.success("Approved for calendar mapping");
+            } catch (error) {
+              toast.error(error instanceof Error ? error.message : "Failed to approve preferences");
+            } finally {
+              setApproving(false);
+            }
+          }}
+          className="px-3 py-2 text-sm rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
+          disabled={
+            approving ||
+            saving ||
+            !selectedPhysicianId ||
+            !bundle.rotationConfiguration?.isValid ||
+            !selectedRow?.requestId ||
+            (selectedRow?.missingRotationNames ?? []).length > 0 ||
+            selectedRow?.approvalStatus === "approved"
+          }
+        >
+          {approving
+            ? "Approving..."
+            : selectedRow?.approvalStatus === "approved"
+              ? "Approved"
+              : "Approve for Mapping"}
+        </button>
+        <button
+          onClick={async () => {
+            if (!selectedPhysicianId || !selectedRotationId) {
+              toast.error("Select a physician and rotation");
+              return;
+            }
+            if (mode === "preferred") {
+              const parsedRank = Number(rank);
+              if (!Number.isInteger(parsedRank) || parsedRank < 1) {
+                toast.error("Preferred mode requires a positive integer rank");
+                return;
+              }
+            }
+
+            setSaving(true);
+            try {
+              await setByAdmin({
+                physicianId: selectedPhysicianId as any,
+                rotationId: selectedRotationId as any,
+                mode,
+                preferenceRank: mode === "preferred" ? Number(rank) : undefined,
+                note: mode === "do_not_assign" ? note.trim() || undefined : undefined,
+              });
+              toast.success("Preference saved");
+            } catch (error) {
+              toast.error(error instanceof Error ? error.message : "Failed to save preference");
+            } finally {
+              setSaving(false);
+            }
+          }}
+          className="px-3 py-2 text-sm rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+          disabled={saving}
+        >
+          {saving ? "Saving..." : "Save Preference"}
+        </button>
+      </div>
+
+      <div className="max-h-60 overflow-auto border rounded-md border-gray-200">
+        <table className="w-full text-xs">
+          <thead className="bg-gray-50 text-gray-600 sticky top-0">
+            <tr>
+              <th className="text-left px-2 py-2">Physician</th>
+              <th className="text-left px-2 py-2">Completion</th>
+              <th className="text-left px-2 py-2">Approval</th>
+              <th className="text-left px-2 py-2">Mapping</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(bundle.rows ?? []).map((row: any) => (
+              <tr key={String(row.physicianId)} className="border-t border-gray-100">
+                <td className="px-2 py-2">
+                  {row.physicianName} ({row.physicianInitials})
+                </td>
+                <td className="px-2 py-2">
+                  {row.configuredCount}/{row.requiredCount}
+                </td>
+                <td className="px-2 py-2">
+                  <StatusBadge status={row.approvalStatus ?? "pending"} />
+                </td>
+                <td className="px-2 py-2">
+                  {row.isReadyForMapping ? (
+                    <span className="text-emerald-700 font-medium">Ready</span>
+                  ) : (
+                    <span className="text-amber-700">Blocked</span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function AdminWeekPreferenceImportPanel({
+  physicians,
+  currentWeekBundle,
+}: {
+  physicians: any[];
+  currentWeekBundle: any;
+}) {
+  const importWeekPreferences = useMutation(
+    api.functions.scheduleRequests.importWeekPreferencesFromUpload,
+  );
+  const activePhysicians: ImportTargetPhysician[] = useMemo(
+    () =>
+      (physicians ?? [])
+        .filter((physician: any) => physician.isActive)
+        .map((physician: any) => ({
+          _id: String(physician._id),
+          firstName: physician.firstName,
+          lastName: physician.lastName,
+          initials: physician.initials,
+        }))
+        .sort((a, b) => {
+          const byLast = a.lastName.localeCompare(b.lastName);
+          if (byLast !== 0) return byLast;
+          return a.firstName.localeCompare(b.firstName);
+        }),
+    [physicians],
+  );
+  const [selectedPhysicianId, setSelectedPhysicianId] = useState("");
+  const [importFileName, setImportFileName] = useState("");
+  const [parsedImport, setParsedImport] = useState<ParsedUploadPayload | null>(null);
+  const [parsingImport, setParsingImport] = useState(false);
+  const [importingWeeks, setImportingWeeks] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!selectedPhysicianId && activePhysicians.length > 0) {
+      setSelectedPhysicianId(activePhysicians[0]._id);
+    }
+  }, [activePhysicians, selectedPhysicianId]);
+
+  const selectedPhysician =
+    activePhysicians.find((physician) => physician._id === selectedPhysicianId) ?? null;
+  const canEdit = currentWeekBundle?.fiscalYear?.status === "collecting";
+  const importValidationError = useMemo(
+    () =>
+      validateParsedUpload({
+        payload: parsedImport,
+        fiscalYearLabel: currentWeekBundle?.fiscalYear?.label,
+        targetPhysician: selectedPhysician,
+        fiscalWeeks: currentWeekBundle?.weeks ?? [],
+      }),
+    [
+      currentWeekBundle?.fiscalYear?.label,
+      currentWeekBundle?.weeks,
+      parsedImport,
+      selectedPhysician,
+    ],
+  );
+
+  const handleParseImportFile = async (file: File | null | undefined) => {
+    if (!file) return;
+
+    setParsingImport(true);
+    setImportError(null);
+    setParsedImport(null);
+    setImportFileName(file.name);
+
+    try {
+      const parsed = await parseScheduleImportFile(file);
+      setParsedImport(parsed);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to parse upload file";
+      setImportError(message);
+      toast.error(message);
+    } finally {
+      setParsingImport(false);
+    }
+  };
+
+  const handleImport = async () => {
+    if (!selectedPhysician) {
+      toast.error("Select a physician");
+      return;
+    }
+    if (!parsedImport) {
+      toast.error("Choose a file before importing");
+      return;
+    }
+    if (importValidationError) {
+      toast.error(importValidationError);
+      return;
+    }
+
+    setImportingWeeks(true);
+    try {
+      const result = await importWeekPreferences({
+        targetPhysicianId: selectedPhysician._id as any,
+        sourceFileName: parsedImport.sourceFileName,
+        sourceDoctorToken: parsedImport.sourceDoctorToken,
+        sourceFiscalYearLabel: parsedImport.sourceFiscalYearLabel,
+        weeks: parsedImport.weeks.map((week) => ({
+          weekStart: week.weekStart,
+          weekEnd: week.weekEnd ?? undefined,
+          availability: week.availability,
+        })),
+      });
+      toast.success(result.message);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to import week preferences");
+    } finally {
+      setImportingWeeks(false);
+    }
+  };
+
+  if (!currentWeekBundle?.fiscalYear) {
+    return (
+      <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
+        <h3 className="text-lg font-semibold mb-2">Admin Week Preference Import</h3>
+        <p className="text-sm text-gray-600">No active fiscal year available.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm space-y-3">
+      <div>
+        <h3 className="text-lg font-semibold">Admin Week Preference Import</h3>
+        <p className="text-sm text-gray-600">
+          Import a file and assign its week preferences to a selected physician.
+        </p>
+      </div>
+
+      {!canEdit ? (
+        <div className="rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+          Import is locked because fiscal year status is <b>{currentWeekBundle.fiscalYear.status}</b>.
+        </div>
+      ) : null}
+
+      <label className="text-sm block">
+        <span className="block text-xs text-gray-600 mb-1">Physician</span>
+        <select
+          value={selectedPhysicianId}
+          onChange={(event) => setSelectedPhysicianId(event.target.value)}
+          className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+          disabled={activePhysicians.length === 0 || importingWeeks}
+        >
+          {activePhysicians.length === 0 ? (
+            <option value="">No active physicians</option>
+          ) : (
+            activePhysicians.map((physician) => (
+              <option key={physician._id} value={physician._id}>
+                {physician.lastName}, {physician.firstName} ({physician.initials})
+              </option>
+            ))
+          )}
+        </select>
+      </label>
+
+      <label className="text-sm block">
+        <span className="block text-xs text-gray-600 mb-1">Upload File</span>
+        <input
+          type="file"
+          accept=".xlsx,.csv"
+          disabled={!canEdit || parsingImport || importingWeeks || activePhysicians.length === 0}
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            void handleParseImportFile(file);
+            event.target.value = "";
+          }}
+          className="block w-full text-sm text-gray-700 file:mr-4 file:rounded file:border-0 file:bg-gray-100 file:px-3 file:py-2 file:text-sm file:font-medium file:text-gray-700 hover:file:bg-gray-200 disabled:opacity-50"
+        />
+      </label>
+
+      {importFileName ? (
+        <p className="text-xs text-gray-600">
+          Selected file: <span className="font-medium">{importFileName}</span>
+        </p>
+      ) : null}
+
+      {parsingImport ? (
+        <div className="rounded border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
+          Parsing upload...
+        </div>
+      ) : null}
+
+      {importError ? (
+        <div className="rounded border border-rose-300 bg-rose-50 p-3 text-sm text-rose-900">
+          {importError}
+        </div>
+      ) : null}
+
+      {parsedImport ? (
+        <div className="rounded border border-gray-200 bg-gray-50 p-3 space-y-2">
+          <div className="text-xs text-gray-700">
+            <span className="font-medium">Doctor token:</span> {parsedImport.sourceDoctorToken}
+          </div>
+          <div className="text-xs text-gray-700">
+            <span className="font-medium">Fiscal year:</span> {parsedImport.sourceFiscalYearLabel}
+          </div>
+          <div className="text-xs text-gray-700">
+            <span className="font-medium">Weeks parsed:</span> {parsedImport.weeks.length}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {(["red", "yellow", "green", "unset"] as UploadAvailability[]).map((value) => (
+              <span
+                key={value}
+                className="inline-flex text-xs px-2 py-1 rounded bg-white border border-gray-200 text-gray-700"
+              >
+                {value}: {parsedImport.counts[value]}
+              </span>
+            ))}
+          </div>
+          {importValidationError ? (
+            <div className="rounded border border-rose-300 bg-rose-50 p-2 text-xs text-rose-900">
+              {importValidationError}
+            </div>
+          ) : (
+            <div className="rounded border border-emerald-200 bg-emerald-50 p-2 text-xs text-emerald-800">
+              Upload validation passed for selected physician.
+            </div>
+          )}
+        </div>
+      ) : null}
+
+      <div className="flex justify-end">
+        <button
+          onClick={handleImport}
+          disabled={
+            !canEdit ||
+            parsingImport ||
+            importingWeeks ||
+            !selectedPhysician ||
+            !parsedImport ||
+            Boolean(importValidationError)
+          }
+          className="px-3 py-2 text-sm rounded bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
+        >
+          {importingWeeks ? "Importing..." : "Import for Physician"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function AdminRequestQueue({ adminRequestBundle }: { adminRequestBundle: any }) {
   if (!adminRequestBundle?.fiscalYear) {
     return (
@@ -2211,6 +3602,7 @@ function StatusBadge({ status }: { status: string }) {
   const classes: Record<string, string> = {
     admin: "bg-blue-100 text-blue-800",
     physician: "bg-green-100 text-green-800",
+    viewer: "bg-gray-100 text-gray-700",
     setup: "bg-slate-100 text-slate-800",
     collecting: "bg-amber-100 text-amber-800",
     building: "bg-sky-100 text-sky-800",
@@ -2222,6 +3614,8 @@ function StatusBadge({ status }: { status: string }) {
     draft: "bg-slate-100 text-slate-800",
     submitted: "bg-indigo-100 text-indigo-800",
     revised: "bg-orange-100 text-orange-800",
+    pending: "bg-amber-100 text-amber-800",
+    approved: "bg-emerald-100 text-emerald-800",
     proposed: "bg-slate-100 text-slate-800",
     peer_accepted: "bg-cyan-100 text-cyan-800",
     peer_declined: "bg-rose-100 text-rose-800",
@@ -2273,9 +3667,39 @@ function BootstrapSetup() {
 }
 
 function AdminActions({ isAdmin, currentFY }: { isAdmin: boolean; currentFY: any }) {
+  const conferenceNames = ["CHEST", "SCCM", "ATS"] as const;
   const updateFiscalYearStatus = useMutation(api.functions.fiscalYears.updateFiscalYearStatus);
+  const importUsPublicHolidays = useAction(
+    api.functions.calendarEvents.importCurrentFiscalYearUsPublicHolidays,
+  );
+  const importReligiousObservances = useAction(
+    api.functions.calendarEvents.importCurrentFiscalYearReligiousObservances,
+  );
+  const updateCalendarEvent = useMutation(api.functions.calendarEvents.updateCalendarEvent);
+  const conferenceBundle = useQuery(
+    api.functions.calendarEvents.getCurrentFiscalYearInstitutionalConferences,
+    isAdmin ? {} : "skip",
+  );
+  const calendarEventsBundle = useQuery(
+    api.functions.calendarEvents.getCurrentFiscalYearCalendarEvents,
+    isAdmin ? {} : "skip",
+  );
+  const weeksBundle = useQuery(
+    api.functions.fiscalYears.getWeeks,
+    isAdmin && currentFY ? { fiscalYearId: currentFY._id } : "skip",
+  );
+  const setConferenceDate = useMutation(
+    api.functions.calendarEvents.setCurrentFiscalYearInstitutionalConferenceDate,
+  );
   const [targetStatus, setTargetStatus] = useState<string>("");
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+  const [isImportingHolidays, setIsImportingHolidays] = useState(false);
+  const [holidayImportResult, setHolidayImportResult] = useState<string | null>(null);
+  const [isImportingReligious, setIsImportingReligious] = useState(false);
+  const [religiousImportResult, setReligiousImportResult] = useState<string | null>(null);
+  const [savingEventId, setSavingEventId] = useState<string | null>(null);
+  const [conferenceDateDrafts, setConferenceDateDrafts] = useState<Record<string, string>>({});
+  const [savingConferenceName, setSavingConferenceName] = useState<string | null>(null);
 
   const nextStatusByCurrent: Record<string, string | undefined> = {
     setup: "collecting",
@@ -2292,6 +3716,38 @@ function AdminActions({ isAdmin, currentFY }: { isAdmin: boolean; currentFY: any
     }
     setTargetStatus(nextStatusByCurrent[currentFY.status] ?? currentFY.status);
   }, [currentFY?._id, currentFY?.status]);
+
+  useEffect(() => {
+    if (!conferenceBundle?.conferences) return;
+    const nextDrafts: Record<string, string> = {};
+    for (const name of conferenceNames) {
+      const row = conferenceBundle.conferences.find((conference: any) => conference.name === name);
+      nextDrafts[name] = row?.date ?? "";
+    }
+    setConferenceDateDrafts(nextDrafts);
+  }, [conferenceBundle?.fiscalYear?._id, conferenceBundle?.conferences]);
+
+  const weekNumberById = useMemo(() => {
+    const map = new Map<string, number>();
+    if (!Array.isArray(weeksBundle)) return map;
+    for (const week of weeksBundle) {
+      map.set(String(week._id), Number(week.weekNumber));
+    }
+    return map;
+  }, [weeksBundle]);
+
+  const pendingReligiousEvents = useMemo(() => {
+    const events = calendarEventsBundle?.events ?? [];
+    return events
+      .filter((event: any) => event.category === "religious_observance")
+      .filter((event: any) => event.source === "calendarific")
+      .filter((event: any) => !event.isApproved)
+      .sort((a: any, b: any) => {
+        const byDate = String(a.date).localeCompare(String(b.date));
+        if (byDate !== 0) return byDate;
+        return String(a.name).localeCompare(String(b.name));
+      });
+  }, [calendarEventsBundle?.events]);
 
   if (!isAdmin) {
     return (
@@ -2354,6 +3810,223 @@ function AdminActions({ isAdmin, currentFY }: { isAdmin: boolean; currentFY: any
               </button>
             </div>
           </>
+        )}
+      </div>
+
+      <div className="border border-gray-200 rounded-md p-4 space-y-3">
+        <h4 className="font-medium text-sm">US Public Holidays (Nager.Date)</h4>
+        <p className="text-sm text-gray-600">
+          Pull US public holidays from Nager.Date (no API key) and map each event to fiscal-year weeks.
+        </p>
+        <button
+          onClick={async () => {
+            setIsImportingHolidays(true);
+            try {
+              const result = await importUsPublicHolidays({});
+              setHolidayImportResult(
+                `${result.message}. ${result.mappedHolidayCount} matched week(s), ${result.updatedCount} updated, ${result.skippedExistingCount} already present.`,
+              );
+              toast.success(result.message);
+            } catch (error) {
+              const message =
+                error instanceof Error ? error.message : "Failed to import holidays from Nager.Date";
+              setHolidayImportResult(`Error: ${message}`);
+              toast.error(message);
+            } finally {
+              setIsImportingHolidays(false);
+            }
+          }}
+          disabled={!currentFY || isImportingHolidays}
+          className="px-3 py-2 text-sm rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
+        >
+          {isImportingHolidays ? "Importing..." : "Import US Public Holidays"}
+        </button>
+        {holidayImportResult ? <p className="text-xs text-gray-700">{holidayImportResult}</p> : null}
+      </div>
+
+      <div className="border border-gray-200 rounded-md p-4 space-y-3">
+        <h4 className="font-medium text-sm">Religious Observances (Calendarific)</h4>
+        <p className="text-sm text-gray-600">
+          Pull US religious observances from Calendarific and map each event to fiscal-year weeks.
+          Requires a `CALENDARIFIC_API_KEY` in the Convex deployment environment.
+        </p>
+        <button
+          onClick={async () => {
+            setIsImportingReligious(true);
+            try {
+              const result = await importReligiousObservances({});
+              setReligiousImportResult(
+                `${result.message}. ${result.mappedHolidayCount} matched week(s), ${result.updatedCount} updated, ${result.skippedExistingCount} already present.`,
+              );
+              toast.success(result.message);
+            } catch (error) {
+              const message =
+                error instanceof Error
+                  ? error.message
+                  : "Failed to import religious observances from Calendarific";
+              setReligiousImportResult(`Error: ${message}`);
+              toast.error(message);
+            } finally {
+              setIsImportingReligious(false);
+            }
+          }}
+          disabled={!currentFY || isImportingReligious}
+          className="px-3 py-2 text-sm rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
+        >
+          {isImportingReligious ? "Importing..." : "Import Religious Observances"}
+        </button>
+        {religiousImportResult ? <p className="text-xs text-gray-700">{religiousImportResult}</p> : null}
+      </div>
+
+      <div className="border border-gray-200 rounded-md p-4 space-y-3">
+        <h4 className="font-medium text-sm">Approve Religious Observances</h4>
+        <p className="text-sm text-gray-600">
+          Review Calendarific observances before they appear for non-admin users.
+        </p>
+        {calendarEventsBundle === undefined ? (
+          <p className="text-sm text-gray-600">Loading observances...</p>
+        ) : pendingReligiousEvents.length === 0 ? (
+          <p className="text-sm text-gray-600">No pending religious observances.</p>
+        ) : (
+          <div className="border border-gray-200 rounded-md overflow-auto max-h-72">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 text-gray-700 sticky top-0">
+                <tr>
+                  <th className="text-left px-3 py-2">Date</th>
+                  <th className="text-left px-3 py-2">Name</th>
+                  <th className="text-left px-3 py-2">Week</th>
+                  <th className="text-left px-3 py-2">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pendingReligiousEvents.map((event: any) => {
+                  const weekNumber = event.weekId ? weekNumberById.get(String(event.weekId)) : null;
+                  return (
+                    <tr key={String(event._id)} className="border-t border-gray-100 align-top">
+                      <td className="px-3 py-2 whitespace-nowrap">{event.date}</td>
+                      <td className="px-3 py-2">{event.name}</td>
+                      <td className="px-3 py-2">{weekNumber ? `Week ${weekNumber}` : "—"}</td>
+                      <td className="px-3 py-2">
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            onClick={async () => {
+                              setSavingEventId(String(event._id));
+                              try {
+                                const result = await updateCalendarEvent({
+                                  eventId: event._id,
+                                  isApproved: true,
+                                  isVisible: true,
+                                });
+                                toast.success(result.message);
+                              } catch (error) {
+                                toast.error(
+                                  error instanceof Error
+                                    ? error.message
+                                    : "Failed to approve observance",
+                                );
+                              } finally {
+                                setSavingEventId(null);
+                              }
+                            }}
+                            disabled={savingEventId !== null}
+                            className="px-2 py-1 text-xs rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
+                          >
+                            {savingEventId === String(event._id) ? "Saving..." : "Approve"}
+                          </button>
+                          <button
+                            onClick={async () => {
+                              setSavingEventId(String(event._id));
+                              try {
+                                const result = await updateCalendarEvent({
+                                  eventId: event._id,
+                                  isApproved: true,
+                                  isVisible: false,
+                                });
+                                toast.success(result.message);
+                              } catch (error) {
+                                toast.error(
+                                  error instanceof Error
+                                    ? error.message
+                                    : "Failed to hide observance",
+                                );
+                              } finally {
+                                setSavingEventId(null);
+                              }
+                            }}
+                            disabled={savingEventId !== null}
+                            className="px-2 py-1 text-xs rounded bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:opacity-50"
+                          >
+                            {savingEventId === String(event._id) ? "Saving..." : "Hide"}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <div className="border border-gray-200 rounded-md p-4 space-y-3">
+        <h4 className="font-medium text-sm">Institutional Conferences (CHEST, SCCM, ATS)</h4>
+        <p className="text-sm text-gray-600">
+          These conference events are pre-loaded for each new fiscal year. Set/update this year&apos;s dates.
+        </p>
+        {conferenceBundle === undefined ? (
+          <p className="text-sm text-gray-600">Loading conference placeholders...</p>
+        ) : !conferenceBundle?.fiscalYear ? (
+          <p className="text-sm text-gray-600">No active fiscal year found.</p>
+        ) : (
+          <div className="space-y-2">
+            {conferenceNames.map((conferenceName) => (
+              <div key={conferenceName} className="flex flex-wrap items-center gap-2">
+                <label className="text-sm font-medium w-20">{conferenceName}</label>
+                <input
+                  type="date"
+                  value={conferenceDateDrafts[conferenceName] ?? ""}
+                  onChange={(event) =>
+                    setConferenceDateDrafts((prev) => ({
+                      ...prev,
+                      [conferenceName]: event.target.value,
+                    }))
+                  }
+                  className="rounded border border-gray-300 px-3 py-2 text-sm"
+                  disabled={savingConferenceName === conferenceName}
+                />
+                <button
+                  onClick={async () => {
+                    const date = (conferenceDateDrafts[conferenceName] ?? "").trim();
+                    if (!date) {
+                      toast.error(`${conferenceName}: choose a date first`);
+                      return;
+                    }
+                    setSavingConferenceName(conferenceName);
+                    try {
+                      const result = await setConferenceDate({
+                        conferenceName,
+                        date,
+                      });
+                      toast.success(result.message);
+                    } catch (error) {
+                      toast.error(
+                        error instanceof Error
+                          ? error.message
+                          : `Failed to save ${conferenceName} conference date`,
+                      );
+                    } finally {
+                      setSavingConferenceName(null);
+                    }
+                  }}
+                  disabled={savingConferenceName !== null}
+                  className="px-3 py-2 text-sm rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {savingConferenceName === conferenceName ? "Saving..." : "Save Date"}
+                </button>
+              </div>
+            ))}
+          </div>
         )}
       </div>
 

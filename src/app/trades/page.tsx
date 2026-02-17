@@ -3,30 +3,38 @@
 import Link from "next/link";
 import { Authenticated, Unauthenticated, useMutation, useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
-import { SignInForm } from "../../SignInForm";
-import { SignOutButton } from "../../SignOutButton";
+import { SignInForm } from "@/components/auth/SignInForm";
+import { SignOutButton } from "@/components/auth/SignOutButton";
+import { ThemeToggle } from "@/components/theme/ThemeToggle";
 import { toast, Toaster } from "sonner";
 import { useEffect, useMemo, useState } from "react";
 
 export default function TradesPage() {
   return (
-    <div className="min-h-screen flex flex-col bg-gray-50">
-      <header className="sticky top-0 z-10 bg-white/80 backdrop-blur-sm h-16 flex justify-between items-center border-b shadow-sm px-4">
+    <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-slate-950">
+      <header className="sticky top-0 z-10 flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-gray-200 bg-white/80 px-4 py-3 shadow-sm backdrop-blur-sm dark:border-slate-700 dark:bg-slate-900/85">
         <div className="flex items-center gap-3">
-          <h2 className="text-xl font-semibold text-primary">Trades & Swaps</h2>
-          <Link href="/" className="px-2 py-1 text-xs rounded bg-gray-100 text-gray-700 hover:bg-gray-200">
+          <h2 className="text-base font-semibold text-primary md:text-lg">Rush PCCM Calendar Assistant</h2>
+          <span className="text-sm text-gray-600 dark:text-slate-300">Trades & Swaps</span>
+          <Link
+            href="/"
+            className="px-2 py-1 text-xs rounded bg-gray-100 text-gray-700 dark:bg-slate-800 dark:text-slate-200 hover:bg-gray-200 dark:hover:bg-slate-700"
+          >
             Back to Dashboard
           </Link>
         </div>
-        <Authenticated>
-          <SignOutButton />
-        </Authenticated>
+        <div className="flex items-center gap-2">
+          <ThemeToggle />
+          <Authenticated>
+            <SignOutButton />
+          </Authenticated>
+        </div>
       </header>
       <main className="flex-1 flex items-start justify-center p-6">
         <div className="w-full max-w-6xl mx-auto">
           <Unauthenticated>
-            <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm space-y-4 max-w-md mx-auto">
-              <h3 className="text-lg font-semibold">Sign in to manage trades</h3>
+            <div className="bg-white dark:bg-slate-900 p-6 rounded-lg border border-gray-200 dark:border-slate-700 shadow-sm space-y-4 max-w-md mx-auto">
+              <h3 className="text-lg font-semibold dark:text-slate-100">Sign in to manage trades</h3>
               <SignInForm />
             </div>
           </Unauthenticated>
@@ -41,37 +49,53 @@ export default function TradesPage() {
 }
 
 function TradesWorkspace() {
+  const loggedInUser = useQuery(api.auth.loggedInUser);
   const myProfile = useQuery(api.functions.physicians.getMyProfile);
   const linkCurrentUser = useMutation(api.functions.physicians.linkCurrentUserToPhysicianByEmail);
+  const isAdmin = loggedInUser?.role === "admin";
+  const isViewer = loggedInUser?.role === "viewer";
+  const hasPhysicianProfile = Boolean(myProfile);
+  const [requesterAssignmentId, setRequesterAssignmentId] = useState("");
+  const [targetAssignmentId, setTargetAssignmentId] = useState("");
+  const [targetPhysicianFilterId, setTargetPhysicianFilterId] = useState("");
+  const [reason, setReason] = useState("");
+  const [proposing, setProposing] = useState(false);
+  const [resolvingAdminId, setResolvingAdminId] = useState<string | null>(null);
 
   const tradeOptions = useQuery(
     api.functions.tradeRequests.getTradeProposalOptions,
-    myProfile ? {} : "skip",
+    hasPhysicianProfile ? {} : "skip",
   );
-  const myTrades = useQuery(api.functions.tradeRequests.getMyTrades, myProfile ? {} : "skip");
+  const tradeCandidates = useQuery(
+    api.functions.tradeRequests.getTradeCandidatesForAssignment,
+    hasPhysicianProfile && requesterAssignmentId
+      ? { requesterAssignmentId: requesterAssignmentId as any }
+      : "skip",
+  );
+  const myTrades = useQuery(api.functions.tradeRequests.getMyTrades, hasPhysicianProfile ? {} : "skip");
   const adminTradeQueue = useQuery(
     api.functions.tradeRequests.getAdminTradeQueue,
-    myProfile?.role === "admin" ? {} : "skip",
+    isAdmin ? {} : "skip",
   );
 
   const proposeTrade = useMutation(api.functions.tradeRequests.proposeTrade);
   const respondToTrade = useMutation(api.functions.tradeRequests.respondToTrade);
   const cancelTrade = useMutation(api.functions.tradeRequests.cancelTrade);
   const adminResolveTrade = useMutation(api.functions.tradeRequests.adminResolveTrade);
-
-  const [requesterAssignmentId, setRequesterAssignmentId] = useState("");
-  const [targetAssignmentId, setTargetAssignmentId] = useState("");
-  const [reason, setReason] = useState("");
-  const [proposing, setProposing] = useState(false);
-  const [resolvingAdminId, setResolvingAdminId] = useState<string | null>(null);
   const myAssignmentOptions = tradeOptions?.myAssignments ?? [];
   const availableAssignmentOptions = tradeOptions?.availableAssignments ?? [];
+  const filteredAvailableAssignmentOptions = useMemo(() => {
+    if (!targetPhysicianFilterId) return availableAssignmentOptions;
+    return availableAssignmentOptions.filter(
+      (assignment: any) => String(assignment.physicianId ?? "") === targetPhysicianFilterId,
+    );
+  }, [availableAssignmentOptions, targetPhysicianFilterId]);
 
   useEffect(() => {
-    if (myProfile && !myProfile.userId) {
+    if (hasPhysicianProfile && myProfile && !myProfile.userId) {
       void linkCurrentUser({}).catch(() => undefined);
     }
-  }, [linkCurrentUser, myProfile?._id, myProfile?.userId]);
+  }, [hasPhysicianProfile, linkCurrentUser, myProfile?._id, myProfile?.userId]);
 
   useEffect(() => {
     if (!requesterAssignmentId && myAssignmentOptions.length > 0) {
@@ -85,11 +109,30 @@ function TradesWorkspace() {
     }
   }, [targetAssignmentId, availableAssignmentOptions]);
 
+  useEffect(() => {
+    setTargetPhysicianFilterId("");
+  }, [requesterAssignmentId]);
+
+  useEffect(() => {
+    if (filteredAvailableAssignmentOptions.length === 0) {
+      if (targetAssignmentId) setTargetAssignmentId("");
+      return;
+    }
+    const selectedStillVisible = filteredAvailableAssignmentOptions.some(
+      (assignment: any) => String(assignment.assignmentId) === targetAssignmentId,
+    );
+    if (!selectedStillVisible) {
+      setTargetAssignmentId(String(filteredAvailableAssignmentOptions[0].assignmentId));
+    }
+  }, [filteredAvailableAssignmentOptions, targetAssignmentId]);
+
   if (
+    loggedInUser === undefined ||
     myProfile === undefined ||
-    (myProfile && tradeOptions === undefined) ||
-    (myProfile && myTrades === undefined) ||
-    (myProfile?.role === "admin" && adminTradeQueue === undefined)
+    (hasPhysicianProfile && tradeOptions === undefined) ||
+    (hasPhysicianProfile && requesterAssignmentId && tradeCandidates === undefined) ||
+    (hasPhysicianProfile && myTrades === undefined) ||
+    (isAdmin && adminTradeQueue === undefined)
   ) {
     return (
       <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
@@ -98,7 +141,70 @@ function TradesWorkspace() {
     );
   }
 
-  if (!myProfile) {
+  const awaitingApprovalTrades = useMemo(
+    () => (adminTradeQueue ?? []).filter((trade: any) => trade.status === "peer_accepted"),
+    [adminTradeQueue],
+  );
+
+  const pendingPeerResponseTrades = useMemo(
+    () => (adminTradeQueue ?? []).filter((trade: any) => trade.status === "proposed"),
+    [adminTradeQueue],
+  );
+
+  const adminResolve = async (tradeRequestId: string, approve: boolean) => {
+    setResolvingAdminId(tradeRequestId);
+    try {
+      await adminResolveTrade({
+        tradeRequestId: tradeRequestId as any,
+        approve,
+      });
+      toast.success(approve ? "Trade approved and swapped" : "Trade denied");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to resolve trade");
+    } finally {
+      setResolvingAdminId(null);
+    }
+  };
+
+  if (!hasPhysicianProfile) {
+    if (isViewer) {
+      return (
+        <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
+          <h3 className="text-lg font-semibold mb-2">Viewer Access</h3>
+          <p className="text-sm text-gray-700">
+            Viewer accounts can review schedules on the dashboard but cannot propose or manage trades.
+          </p>
+        </div>
+      );
+    }
+
+    if (isAdmin) {
+      return (
+        <div className="space-y-6">
+          <section className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm space-y-4">
+            <div>
+              <h4 className="font-semibold">Admin Trade Queue</h4>
+              <p className="text-sm text-gray-600">
+                This admin account is not linked to a physician profile, so physician trade actions are hidden.
+              </p>
+            </div>
+            <AdminApprovalTable
+              title="Awaiting Approval"
+              trades={awaitingApprovalTrades}
+              resolvingAdminId={resolvingAdminId}
+              onResolve={adminResolve}
+              emptyMessage="No accepted trades awaiting approval."
+            />
+            <ReadOnlyTradeTable
+              title="Pending Peer Response"
+              trades={pendingPeerResponseTrades}
+              emptyMessage="No trades currently waiting on physician response."
+            />
+          </section>
+        </div>
+      );
+    }
+
     return (
       <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
         <h3 className="text-lg font-semibold mb-2">Profile Not Linked</h3>
@@ -109,7 +215,7 @@ function TradesWorkspace() {
     );
   }
 
-  const myPhysicianId = String(myProfile._id);
+  const myPhysicianId = String(myProfile!._id);
   const trades = myTrades ?? [];
   const incomingPendingTrades = trades.filter(
     (trade: any) => String(trade.targetPhysicianId) === myPhysicianId && trade.status === "proposed",
@@ -121,16 +227,6 @@ function TradesWorkspace() {
   const approvedTrades = trades.filter((trade: any) => trade.status === "admin_approved");
   const closedTrades = trades.filter((trade: any) =>
     ["peer_declined", "admin_denied", "cancelled"].includes(trade.status),
-  );
-
-  const awaitingApprovalTrades = useMemo(
-    () => (adminTradeQueue ?? []).filter((trade: any) => trade.status === "peer_accepted"),
-    [adminTradeQueue],
-  );
-
-  const pendingPeerResponseTrades = useMemo(
-    () => (adminTradeQueue ?? []).filter((trade: any) => trade.status === "proposed"),
-    [adminTradeQueue],
   );
 
   const propose = async () => {
@@ -175,21 +271,6 @@ function TradesWorkspace() {
       toast.success("Trade cancelled");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to cancel trade");
-    }
-  };
-
-  const adminResolve = async (tradeRequestId: string, approve: boolean) => {
-    setResolvingAdminId(tradeRequestId);
-    try {
-      await adminResolveTrade({
-        tradeRequestId: tradeRequestId as any,
-        approve,
-      });
-      toast.success(approve ? "Trade approved and swapped" : "Trade denied");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to resolve trade");
-    } finally {
-      setResolvingAdminId(null);
     }
   };
 
@@ -244,18 +325,35 @@ function TradesWorkspace() {
 
             <label className="text-sm block">
               <span className="block text-xs text-gray-600 mb-1">Target Assignment You Want</span>
+              {targetPhysicianFilterId ? (
+                <div className="mb-1 flex items-center justify-between rounded border border-blue-200 bg-blue-50 px-2 py-1 text-xs text-blue-800">
+                  <span>Filtered to one suggested physician</span>
+                  <button
+                    className="underline hover:no-underline"
+                    onClick={() => setTargetPhysicianFilterId("")}
+                    type="button"
+                  >
+                    Clear filter
+                  </button>
+                </div>
+              ) : null}
               <select
                 value={targetAssignmentId}
                 onChange={(event) => setTargetAssignmentId(event.target.value)}
                 className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
-                disabled={proposing}
+                disabled={proposing || filteredAvailableAssignmentOptions.length === 0}
               >
-                {availableAssignmentOptions.map((assignment: any) => (
+                {filteredAvailableAssignmentOptions.map((assignment: any) => (
                   <option key={String(assignment.assignmentId)} value={String(assignment.assignmentId)}>
                     {assignment.weekLabel} - {assignment.rotationLabel} ({assignment.physicianName})
                   </option>
                 ))}
               </select>
+              {filteredAvailableAssignmentOptions.length === 0 ? (
+                <p className="mt-1 text-xs text-amber-800">
+                  No assignments match the current physician filter.
+                </p>
+              ) : null}
             </label>
 
             <label className="text-sm block">
@@ -278,6 +376,104 @@ function TradesWorkspace() {
                 {proposing ? "Submitting..." : "Submit Trade Request"}
               </button>
             </div>
+
+            {tradeCandidates?.enabled ? (
+              <div className="mt-3 rounded border border-gray-200 bg-gray-50 p-3 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <div className="text-sm font-semibold text-gray-800">Who Is Available For Trade</div>
+                    <div className="text-xs text-gray-600">
+                      For {tradeCandidates.requesterAssignment?.weekLabel} •{" "}
+                      {tradeCandidates.requesterAssignment?.rotationLabel}
+                    </div>
+                  </div>
+                  <div className="text-xs text-gray-600">
+                    Candidates: {tradeCandidates.suggestions?.length ?? 0}/
+                    {tradeCandidates.totalCandidateCount ?? 0}
+                  </div>
+                </div>
+
+                <div className="text-xs text-gray-600">
+                  Excluded (hard): on service this week (
+                  {tradeCandidates.excludedSummary?.alreadyOnServiceThisWeek ?? 0}), no request (
+                  {tradeCandidates.excludedSummary?.missingScheduleRequest ?? 0}), missing rotation preference (
+                  {tradeCandidates.excludedSummary?.missingRotationPreference ?? 0}), marked Do Not Assign (
+                  {tradeCandidates.excludedSummary?.markedDoNotAssign ?? 0})
+                </div>
+                <div className="text-xs text-gray-600">
+                  Continuity rule is soft: physicians off service both previous and following weeks stay visible but
+                  are ranked lower.
+                </div>
+
+                {(tradeCandidates.suggestions ?? []).length === 0 ? (
+                  <div className="text-xs text-amber-800">
+                    No strong candidates found for this week/rotation under current constraints.
+                  </div>
+                ) : (
+                  <div className="max-h-56 overflow-auto border border-gray-200 rounded bg-white">
+                    <table className="w-full text-xs">
+                      <thead className="bg-gray-50 text-gray-600 sticky top-0">
+                        <tr>
+                          <th className="text-left px-2 py-2">Physician</th>
+                          <th className="text-left px-2 py-2">Fit</th>
+                          <th className="text-left px-2 py-2">Notes</th>
+                          <th className="text-left px-2 py-2">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(tradeCandidates.suggestions ?? []).map((candidate: any) => (
+                          <tr key={String(candidate.physicianId)} className="border-t border-gray-100 align-top">
+                            <td className="px-2 py-2">
+                              <div className="font-medium">
+                                {candidate.physicianName} ({candidate.physicianInitials})
+                              </div>
+                              <a
+                                href={`mailto:${candidate.physicianEmail}?subject=Trade request: ${tradeCandidates.requesterAssignment?.weekLabel ?? "service week"}&body=Hi ${candidate.physicianInitials}, would you be open to a trade for ${tradeCandidates.requesterAssignment?.weekLabel ?? "this week"} (${tradeCandidates.requesterAssignment?.rotationLabel ?? "rotation"})?`}
+                                className="text-blue-700 hover:text-blue-800 underline"
+                              >
+                                {candidate.physicianEmail}
+                              </a>
+                            </td>
+                            <td className="px-2 py-2">
+                              <div>Score: {candidate.score}</div>
+                              <div>{candidate.preferenceLabel}</div>
+                              <div>
+                                Prev: {candidate.hasServicePreviousWeek ? "On" : "Off"} | Next:{" "}
+                                {candidate.hasServiceNextWeek ? "On" : "Off"}
+                              </div>
+                            </td>
+                            <td className="px-2 py-2 text-gray-700">
+                              {(candidate.notes ?? []).slice(0, 2).join(" · ")}
+                            </td>
+                            <td className="px-2 py-2">
+                              <button
+                                type="button"
+                                className="px-2 py-1 rounded bg-blue-600 text-white hover:bg-blue-700"
+                                onClick={() => {
+                                  const physicianId = String(candidate.physicianId);
+                                  setTargetPhysicianFilterId(physicianId);
+                                  const firstMatch = availableAssignmentOptions.find(
+                                    (assignment: any) =>
+                                      String(assignment.physicianId ?? "") === physicianId,
+                                  );
+                                  if (firstMatch) {
+                                    setTargetAssignmentId(String(firstMatch.assignmentId));
+                                  }
+                                }}
+                              >
+                                Use for target
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="mt-3 text-xs text-gray-600">{tradeCandidates?.reason ?? null}</div>
+            )}
           </div>
         )}
       </section>
@@ -293,7 +489,7 @@ function TradesWorkspace() {
         />
       </section>
 
-      {myProfile.role === "admin" ? (
+      {isAdmin ? (
         <section className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm space-y-4">
           <div>
             <h4 className="font-semibold">Step 3: Awaiting Approval (Admin)</h4>

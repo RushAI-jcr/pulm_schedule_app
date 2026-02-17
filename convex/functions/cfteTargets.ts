@@ -1,16 +1,17 @@
-import { mutation, query } from "../_generated/server";
+import { mutation, query, QueryCtx, MutationCtx } from "../_generated/server";
 import { v } from "convex/values";
 import { requireAdmin } from "../lib/auth";
 import { isValidTargetCfte } from "../lib/cfteTargets";
 import { getSingleActiveFiscalYear } from "../lib/fiscalYear";
 
-async function getCurrentFiscalYearForAdmin(ctx: any) {
+async function getCurrentFiscalYearForAdmin(ctx: QueryCtx | MutationCtx) {
   await requireAdmin(ctx);
   return await getSingleActiveFiscalYear(ctx);
 }
 
 export const getCurrentFiscalYearCfteTargets = query({
   args: {},
+  returns: v.any(),
   handler: async (ctx) => {
     const fiscalYear = await getCurrentFiscalYearForAdmin(ctx);
     if (!fiscalYear) {
@@ -56,6 +57,7 @@ export const upsertCurrentFiscalYearCfteTarget = mutation({
     physicianId: v.id("physicians"),
     targetCfte: v.number(),
   },
+  returns: v.object({ message: v.string() }),
   handler: async (ctx, args) => {
     const fiscalYear = await getCurrentFiscalYearForAdmin(ctx);
     if (!fiscalYear) throw new Error("No active fiscal year available");

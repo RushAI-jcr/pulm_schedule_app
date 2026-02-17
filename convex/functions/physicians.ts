@@ -1,6 +1,13 @@
-import { query, mutation } from "../_generated/server";
+import { query, mutation, MutationCtx } from "../_generated/server";
 import { v } from "convex/values";
-import { getCurrentPhysician, requireAdmin } from "../lib/auth";
+import { requireAdmin, requireAuthenticatedUser } from "../lib/auth";
+import { Id } from "../_generated/dataModel";
+import {
+  AppRole,
+  getIdentityRoleClaims,
+  normalizeAppRole,
+  resolveEffectiveRole,
+} from "../lib/roles";
 
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
@@ -14,8 +21,56 @@ function normalizeInitials(initials: string): string {
   return initials.trim().toUpperCase();
 }
 
+function normalizeOptionalName(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+async function upsertUserProfile(
+  ctx: MutationCtx,
+  args: {
+    workosUserId: string;
+    email: string;
+    firstName?: string;
+    lastName?: string;
+    role: AppRole;
+    physicianId?: Id<"physicians">;
+  },
+) {
+  const existing = await ctx.db
+    .query("users")
+    .withIndex("by_workosUserId", (q) => q.eq("workosUserId", args.workosUserId))
+    .collect();
+
+  if (existing.length > 1) {
+    throw new Error("Data integrity error: duplicate app users for WorkOS subject");
+  }
+
+  const firstName = normalizeOptionalName(args.firstName);
+  const lastName = normalizeOptionalName(args.lastName);
+
+  const payload = {
+    workosUserId: args.workosUserId,
+    email: normalizeEmail(args.email),
+    role: args.role,
+    lastLoginAt: Date.now(),
+    ...(firstName ? { firstName } : {}),
+    ...(lastName ? { lastName } : {}),
+    ...(args.physicianId ? { physicianId: args.physicianId } : {}),
+  };
+
+  if (existing.length === 0) {
+    await ctx.db.insert("users", payload);
+    return;
+  }
+
+  await ctx.db.patch(existing[0]._id, payload);
+}
+
 export const getPhysicianCount = query({
   args: {},
+  returns: v.number(),
   handler: async (ctx) => {
     return (await ctx.db.query("physicians").collect()).length;
   },
@@ -23,6 +78,7 @@ export const getPhysicianCount = query({
 
 export const getMyProfile = query({
   args: {},
+  returns: v.any(),
   handler: async (ctx) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) return null;
@@ -54,6 +110,7 @@ export const getMyProfile = query({
 
 export const linkCurrentUserToPhysicianByEmail = mutation({
   args: {},
+  returns: v.object({ message: v.string() }),
   handler: async (ctx) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Not authenticated");
@@ -95,14 +152,143 @@ export const linkCurrentUserToPhysicianByEmail = mutation({
       await ctx.db.patch(physician._id, { userId: identity.subject });
     }
 
+    const existingUsers = await ctx.db
+      .query("users")
+      .withIndex("by_workosUserId", (q) => q.eq("workosUserId", identity.subject))
+      .collect();
+    if (existingUsers.length > 1) {
+      throw new Error("Data integrity error: duplicate app users for WorkOS subject");
+    }
+
+    const existingUser = existingUsers[0] ?? null;
+    if (existingUser && !normalizeAppRole(existingUser.role)) {
+      throw new Error("Data integrity error: existing app user has unsupported role");
+    }
+
+    const role = resolveEffectiveRole({
+      appRole: existingUser?.role,
+      physicianRole: physician.role,
+      identityRoleClaims: getIdentityRoleClaims(identity as Record<string, unknown>),
+    });
+
+    await upsertUserProfile(ctx, {
+      workosUserId: identity.subject,
+      email: physician.email,
+      firstName: physician.firstName,
+      lastName: physician.lastName,
+      role,
+      physicianId: physician._id,
+    });
+
     return { message: "Physician account linked" };
+  },
+});
+
+export const syncWorkosSessionUser = mutation({
+  args: {
+    workosUserId: v.string(),
+    email: v.string(),
+    firstName: v.optional(v.string()),
+    lastName: v.optional(v.string()),
+  },
+  returns: v.any(),
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Not authenticated");
+    if (identity.subject !== args.workosUserId) {
+      throw new Error("Authenticated subject does not match provided WorkOS user");
+    }
+    if (identity.email && normalizeEmail(identity.email) !== normalizeEmail(args.email)) {
+      throw new Error("Authenticated email does not match provided WorkOS user");
+    }
+
+    const email = normalizeEmail(args.email);
+
+    const [linkedPhysicians, existingUsers] = await Promise.all([
+      ctx.db
+        .query("physicians")
+        .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+        .collect(),
+      ctx.db
+        .query("users")
+        .withIndex("by_workosUserId", (q) => q.eq("workosUserId", identity.subject))
+        .collect(),
+    ]);
+
+    if (existingUsers.length > 1) {
+      throw new Error("Data integrity error: duplicate app users for WorkOS subject");
+    }
+
+    const existingUser = existingUsers[0] ?? null;
+    if (
+      existingUser &&
+      identity.email &&
+      normalizeEmail(existingUser.email) !== normalizeEmail(identity.email)
+    ) {
+      throw new Error("Authenticated email does not match existing app profile email");
+    }
+
+    if (existingUser && !normalizeAppRole(existingUser.role)) {
+      throw new Error("Data integrity error: existing app user has unsupported role");
+    }
+
+    if (linkedPhysicians.length > 1) {
+      throw new Error("Data integrity error: duplicate physician linkage for current user");
+    }
+
+    let physician = linkedPhysicians[0] ?? null;
+
+    if (!physician) {
+      const byEmail = await ctx.db
+        .query("physicians")
+        .withIndex("by_email", (q) => q.eq("email", email))
+        .collect();
+
+      if (byEmail.length > 1) {
+        throw new Error("Data integrity error: duplicate physician records for email");
+      }
+
+      physician = byEmail[0] ?? null;
+      if (physician) {
+        if (physician.userId && physician.userId !== identity.subject) {
+          throw new Error("Physician record already linked to another account");
+        }
+        if (!physician.isActive) {
+          throw new Error("Physician record is inactive");
+        }
+        if (physician.userId !== identity.subject) {
+          await ctx.db.patch(physician._id, { userId: identity.subject });
+        }
+      }
+    }
+
+    const role = resolveEffectiveRole({
+      appRole: existingUser?.role,
+      physicianRole: physician?.role,
+      identityRoleClaims: getIdentityRoleClaims(identity as Record<string, unknown>),
+    });
+
+    await upsertUserProfile(ctx, {
+      workosUserId: identity.subject,
+      email,
+      firstName: args.firstName ?? physician?.firstName,
+      lastName: args.lastName ?? physician?.lastName,
+      role,
+      physicianId: physician?._id,
+    });
+
+    return {
+      linkedPhysicianId: physician?._id ?? null,
+      role,
+    };
   },
 });
 
 export const getPhysicians = query({
   args: {},
+  returns: v.any(),
   handler: async (ctx) => {
-    await getCurrentPhysician(ctx);
+    await requireAuthenticatedUser(ctx);
     const physicians = await ctx.db.query("physicians").collect();
     physicians.sort((a, b) => {
       const byLast = a.lastName.localeCompare(b.lastName);
@@ -115,8 +301,9 @@ export const getPhysicians = query({
 
 export const getPhysiciansByRole = query({
   args: { role: v.union(v.literal("physician"), v.literal("admin")) },
+  returns: v.any(),
   handler: async (ctx, args) => {
-    await getCurrentPhysician(ctx);
+    await requireAuthenticatedUser(ctx);
     return await ctx.db
       .query("physicians")
       .withIndex("by_role", (q) => q.eq("role", args.role))
@@ -132,6 +319,7 @@ export const createPhysician = mutation({
     email: v.string(),
     role: v.union(v.literal("physician"), v.literal("admin")),
   },
+  returns: v.id("physicians"),
   handler: async (ctx, args) => {
     await requireAdmin(ctx);
 
@@ -177,6 +365,7 @@ export const updatePhysician = mutation({
     role: v.optional(v.union(v.literal("physician"), v.literal("admin"))),
     isActive: v.optional(v.boolean()),
   },
+  returns: v.null(),
   handler: async (ctx, args) => {
     await requireAdmin(ctx);
 
@@ -221,6 +410,7 @@ export const updatePhysician = mutation({
 
 export const seedPhysicians = mutation({
   args: {},
+  returns: v.object({ message: v.string() }),
   handler: async (ctx) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Not authenticated");
@@ -269,5 +459,52 @@ export const seedPhysicians = mutation({
     }
 
     return { message: `Seeded ${physicians.length} physicians` };
+  },
+});
+
+export const seedAdminRoles = mutation({
+  args: {},
+  returns: v.any(),
+  handler: async (ctx) => {
+    await requireAdmin(ctx);
+
+    const adminInitials = ["MY", "BM", "JCR"];
+    const results: Array<{ initials: string; status: "updated" | "unchanged" | "missing" }> = [];
+
+    for (const initials of adminInitials) {
+      const rows = await ctx.db
+        .query("physicians")
+        .withIndex("by_initials", (q) => q.eq("initials", initials))
+        .collect();
+
+      if (rows.length === 0) {
+        results.push({ initials, status: "missing" });
+        continue;
+      }
+
+      const physician = rows[0];
+      const wasAdmin = physician.role === "admin";
+      if (!wasAdmin) {
+        await ctx.db.patch(physician._id, { role: "admin" });
+      }
+
+      if (physician.userId) {
+        await upsertUserProfile(ctx, {
+          workosUserId: physician.userId,
+          email: physician.email,
+          firstName: physician.firstName,
+          lastName: physician.lastName,
+          role: "admin",
+          physicianId: physician._id,
+        });
+      }
+
+      results.push({ initials, status: wasAdmin ? "unchanged" : "updated" });
+    }
+
+    return {
+      message: "Admin role seed complete",
+      results,
+    };
   },
 });

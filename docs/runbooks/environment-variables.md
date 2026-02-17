@@ -3,12 +3,11 @@
 ## Local development
 
 - `NEXT_PUBLIC_CONVEX_URL`: local/dev Convex URL
-- `CONVEX_SITE_URL`: Convex site URL for auth routing
-- `AUTH_WORKOS_ID`: WorkOS client ID for Convex Auth
-- `AUTH_WORKOS_SECRET`: WorkOS client secret for Convex Auth
-- `AUTH_WORKOS_ISSUER`: WorkOS issuer URL (default `https://api.workos.com/`)
-- `AUTH_WORKOS_CONNECTION` (optional): fixed WorkOS connection ID
-- `NEXT_PUBLIC_WORKOS_CONNECTION` (optional): same connection on client sign-in form
+- `WORKOS_CLIENT_ID`: WorkOS AuthKit client ID (also required in Convex deployment env)
+- `WORKOS_API_KEY`: WorkOS API key for AuthKit server actions/routes
+- `WORKOS_COOKIE_PASSWORD`: >= 32-character encryption key for session cookie
+- `NEXT_PUBLIC_WORKOS_REDIRECT_URI`: callback URL (for local: `http://localhost:3000/callback`)
+- `CALENDARIFIC_API_KEY`: Calendarific API key for religious observances (optional)
 - `SENTRY_DSN` (optional): local error capture
 
 ## Preview / staging
@@ -21,9 +20,11 @@
 
 - `CONVEX_DEPLOY_KEY`: production deploy key
 - `NEXT_PUBLIC_CONVEX_URL`: production Convex URL
-- `CONVEX_SITE_URL`: production site URL
-- `AUTH_WORKOS_ID`: production WorkOS client ID
-- `AUTH_WORKOS_SECRET`: production WorkOS client secret
+- `WORKOS_CLIENT_ID`: production WorkOS AuthKit client ID
+- `WORKOS_API_KEY`: production WorkOS API key
+- `WORKOS_COOKIE_PASSWORD`: production cookie encryption key
+- `NEXT_PUBLIC_WORKOS_REDIRECT_URI`: production callback URL (`https://<domain>/callback`)
+- `CALENDARIFIC_API_KEY`: Calendarific API key for religious observances (optional)
 - `SENTRY_DSN`: production DSN
 
 ## Policy

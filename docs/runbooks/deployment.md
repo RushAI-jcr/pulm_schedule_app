@@ -26,7 +26,10 @@
 - Production environment:
   - `CONVEX_DEPLOY_KEY` (production key)
   - `NEXT_PUBLIC_CONVEX_URL` (production frontend Convex URL)
-  - `AUTH_WORKOS_ID` and `AUTH_WORKOS_SECRET` (WorkOS OAuth credentials)
+  - `WORKOS_CLIENT_ID` and `WORKOS_API_KEY` (WorkOS AuthKit credentials)
+  - `WORKOS_COOKIE_PASSWORD` (session cookie encryption key)
+  - `NEXT_PUBLIC_WORKOS_REDIRECT_URI` (must match WorkOS callback URL)
+  - `CALENDARIFIC_API_KEY` (optional: enables religious observance imports)
 
 See `docs/runbooks/environment-variables.md` for environment matrix.
 

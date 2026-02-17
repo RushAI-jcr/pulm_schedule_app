@@ -1,32 +1,33 @@
-import { query } from "../_generated/server";
+import { query, QueryCtx } from "../_generated/server";
+import { Doc, Id } from "../_generated/dataModel";
 import { v } from "convex/values";
 import { requireAdmin } from "../lib/auth";
 import { paginateByOffset } from "../lib/auditLog";
 
-async function getCurrentFiscalYearForAdmin(ctx: any) {
+async function getCurrentFiscalYearForAdmin(ctx: QueryCtx) {
   await requireAdmin(ctx);
 
   const collecting = await ctx.db
     .query("fiscalYears")
-    .withIndex("by_status", (q: any) => q.eq("status", "collecting"))
+    .withIndex("by_status", (q) => q.eq("status", "collecting"))
     .first();
   if (collecting) return collecting;
 
   const setup = await ctx.db
     .query("fiscalYears")
-    .withIndex("by_status", (q: any) => q.eq("status", "setup"))
+    .withIndex("by_status", (q) => q.eq("status", "setup"))
     .first();
   if (setup) return setup;
 
   const building = await ctx.db
     .query("fiscalYears")
-    .withIndex("by_status", (q: any) => q.eq("status", "building"))
+    .withIndex("by_status", (q) => q.eq("status", "building"))
     .first();
   if (building) return building;
 
   return await ctx.db
     .query("fiscalYears")
-    .withIndex("by_status", (q: any) => q.eq("status", "published"))
+    .withIndex("by_status", (q) => q.eq("status", "published"))
     .first();
 }
 
@@ -37,6 +38,7 @@ export const getCurrentFiscalYearAuditLog = query({
     actionFilter: v.optional(v.string()),
     entityTypeFilter: v.optional(v.string()),
   },
+  returns: v.any(),
   handler: async (ctx, args) => {
     const fiscalYear = await getCurrentFiscalYearForAdmin(ctx);
     if (!fiscalYear) {
@@ -63,9 +65,9 @@ export const getCurrentFiscalYearAuditLog = query({
     }
 
     const physicianIds = Array.from(new Set(rows.map((row) => String(row.userId))));
-    const physicians = new Map<string, any>();
+    const physicians = new Map<string, Doc<"physicians">>();
     for (const physicianId of physicianIds) {
-      const physician = await ctx.db.get(physicianId as any);
+      const physician = await ctx.db.get(physicianId as Id<"physicians">);
       if (physician) physicians.set(physicianId, physician);
     }
 

@@ -7,6 +7,7 @@ import {
   canProposeTradeAssignments,
   canProposeTradeForFiscalYear,
   canRequesterCancelTrade,
+  canMapCalendarForFiscalYear,
   canTargetRespondToTrade,
   nextScheduleRequestStatusAfterSave,
 } from "../convex/lib/workflowPolicy";
@@ -36,6 +37,14 @@ describe("schedule request lifecycle policy", () => {
     expect(canTransitionFiscalYearStatus("collecting", "setup")).toBe(false);
     expect(canTransitionFiscalYearStatus("published", "building")).toBe(false);
     expect(canTransitionFiscalYearStatus("archived", "published")).toBe(false);
+  });
+
+  it("allows calendar mapping only during building phase", () => {
+    expect(canMapCalendarForFiscalYear("building")).toBe(true);
+    expect(canMapCalendarForFiscalYear("setup")).toBe(false);
+    expect(canMapCalendarForFiscalYear("collecting")).toBe(false);
+    expect(canMapCalendarForFiscalYear("published")).toBe(false);
+    expect(canMapCalendarForFiscalYear("archived")).toBe(false);
   });
 });
 

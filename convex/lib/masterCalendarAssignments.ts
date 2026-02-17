@@ -4,6 +4,8 @@ export interface CandidateForAssignment {
   physicianId: string;
   availability: Availability;
   headroom: number;
+  preferenceRank?: number | null;
+  deprioritize?: boolean;
 }
 
 export function getAvailabilityPriority(availability: Availability): number {
@@ -18,6 +20,15 @@ export function sortCandidatesByAvailabilityAndHeadroom<T extends CandidateForAs
   return [...candidates].sort((a, b) => {
     const availabilityDiff = getAvailabilityPriority(a.availability) - getAvailabilityPriority(b.availability);
     if (availabilityDiff !== 0) return availabilityDiff;
+
+    const preferenceRankA = a.preferenceRank ?? Number.POSITIVE_INFINITY;
+    const preferenceRankB = b.preferenceRank ?? Number.POSITIVE_INFINITY;
+    if (preferenceRankA < preferenceRankB) return -1;
+    if (preferenceRankA > preferenceRankB) return 1;
+
+    const deprioritizeA = Boolean(a.deprioritize);
+    const deprioritizeB = Boolean(b.deprioritize);
+    if (deprioritizeA !== deprioritizeB) return deprioritizeA ? 1 : -1;
 
     const headroomDiff = b.headroom - a.headroom;
     if (headroomDiff !== 0) return headroomDiff;
