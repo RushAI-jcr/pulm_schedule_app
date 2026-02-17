@@ -11,6 +11,10 @@ import {
   sortCandidatesByAvailabilityAndHeadroom,
   wouldExceedMaxConsecutiveWeeks,
 } from "../lib/masterCalendarAssignments";
+import { DEFAULT_AUTO_FILL_CONFIG } from "../lib/autoFill";
+import type { RotationPreference as AutoFillRotationPreference } from "../lib/autoFill";
+import { identifyHolidayWeeks, buildPriorYearHolidayMap, computeHolidayParityScores } from "../lib/autoFillHolidays";
+import { runAutoFill } from "../lib/autoFillSolver";
 import {
   getMissingActiveRotationIds,
   getRotationConfigurationIssues,
@@ -1464,10 +1468,9 @@ export const autoAssignCurrentFiscalYearDraft = mutation({
         .collect(),
     ]);
 
-    const sortedWeeks = sortWeeksByWeekNumber(weeks);
     const activeRotations = sortActiveRotations(rotations);
     const activePhysicians = sortActivePhysicians(physicians);
-    if (sortedWeeks.length === 0 || activeRotations.length === 0 || activePhysicians.length === 0) {
+    if (weeks.length === 0 || activeRotations.length === 0 || activePhysicians.length === 0) {
       return {
         message: "No eligible weeks, rotations, or physicians for auto-assignment",
         assignedCount: 0,
@@ -1485,123 +1488,217 @@ export const autoAssignCurrentFiscalYearDraft = mutation({
       throw new Error(formatRotationPreferenceGateMessage(readiness));
     }
 
-    const weekNumberByWeekId = getWeekNumberByWeekId(sortedWeeks);
-    const allWeekNumbers = sortedWeeks.map((week) => week.weekNumber);
-    const assignmentsByCell = new Map<string, Doc<"assignments">>(
-      assignments.map((assignment) => [toCellKey(assignment.weekId, assignment.rotationId), assignment]),
-    );
-
-    const rotationsById = new Map<string, Doc<"rotations">>(
-      rotations.map((rotation) => [String(rotation._id), rotation]),
-    );
+    // Load data needed for the constraint solver
     const targetCfteByPhysician = await getTargetCfteByPhysician(ctx, fiscalYear._id);
     const clinicCfteByPhysician = await getClinicCfteByPhysician(ctx, fiscalYear._id);
-    const runningRotationCfteByPhysician = getRotationCfteByPhysician(assignments, rotationsById);
     const [availabilityByPhysicianWeek, preferencesByPhysicianRotation] = await Promise.all([
       getAvailabilityByPhysicianWeek(ctx, fiscalYear._id),
       getRotationPreferencesByPhysicianRotation(ctx, fiscalYear._id),
     ]);
 
-    const rotationWeekToPhysician = new Map<string, Map<number, string>>();
-    for (const assignment of assignments) {
-      if (!assignment.physicianId) continue;
-      const rotationId = String(assignment.rotationId);
-      const weekNumber = weekNumberByWeekId.get(String(assignment.weekId));
-      if (weekNumber === undefined) continue;
-
-      const existing = rotationWeekToPhysician.get(rotationId) ?? new Map<number, string>();
-      existing.set(weekNumber, String(assignment.physicianId));
-      rotationWeekToPhysician.set(rotationId, existing);
-    }
-
-    let assignedCount = 0;
-
-    for (const week of sortedWeeks) {
-      for (const rotation of activeRotations) {
-        const assignment = assignmentsByCell.get(toCellKey(week._id, rotation._id));
-        if (!assignment || assignment.physicianId) continue;
-
-        const candidates = [];
-        for (const physician of activePhysicians) {
-          const physicianId = String(physician._id);
-          const availability = getAvailabilityForPhysicianWeek(
-            availabilityByPhysicianWeek,
-            physicianId,
-            String(week._id),
-          );
-          if (availability === "red") continue;
-
-          const rotationPreference = getRotationPreferenceForPhysicianRotation(
-            preferencesByPhysicianRotation,
-            physicianId,
-            String(rotation._id),
-          );
-          if (rotationPreference?.avoid) continue;
-
-          const targetCfte = targetCfteByPhysician.get(physicianId);
-          if (targetCfte === undefined) continue;
-
-          const clinicCfte = clinicCfteByPhysician.get(physicianId) ?? 0;
-          const rotationCfte = runningRotationCfteByPhysician.get(physicianId) ?? 0;
-          const headroom = targetCfte - (clinicCfte + rotationCfte);
-          if (headroom + CFTE_EPSILON < rotation.cftePerWeek) continue;
-
-          const rotationWeekMap = rotationWeekToPhysician.get(String(rotation._id)) ?? new Map<number, string>();
-          const assignedWeekNumbers = Array.from(rotationWeekMap.entries())
-            .filter(([, assignedPhysicianId]) => assignedPhysicianId === physicianId)
-            .map(([weekNumber]) => weekNumber);
-
-          const wouldExceed = wouldExceedMaxConsecutiveWeeks({
-            allWeekNumbers,
-            assignedWeekNumbers,
-            candidateWeekNumber: week.weekNumber,
-            maxConsecutiveWeeks: rotation.maxConsecutiveWeeks,
-          });
-
-          if (wouldExceed) continue;
-
-          candidates.push({
-            physicianId,
-            availability,
-            headroom,
-            preferenceRank: rotationPreference?.preferenceRank ?? null,
-            deprioritize: rotationPreference?.deprioritize ?? false,
-          });
+    // Load auto-fill config
+    const configDoc = await ctx.db
+      .query("autoFillConfig")
+      .withIndex("by_fiscalYear", (q) => q.eq("fiscalYearId", fiscalYear._id))
+      .unique();
+    const config = configDoc
+      ? {
+          weightPreference: configDoc.weightPreference,
+          weightHolidayParity: configDoc.weightHolidayParity,
+          weightWorkloadSpread: configDoc.weightWorkloadSpread,
+          weightRotationVariety: configDoc.weightRotationVariety,
+          weightGapEnforcement: configDoc.weightGapEnforcement,
+          majorHolidayNames: configDoc.majorHolidayNames,
+          minGapWeeksBetweenStints: configDoc.minGapWeeksBetweenStints,
         }
+      : DEFAULT_AUTO_FILL_CONFIG;
 
-        if (candidates.length === 0) continue;
+    // Load holiday weeks
+    const calendarEvents = await ctx.db
+      .query("calendarEvents")
+      .withIndex("by_fiscalYear_approved", (q) =>
+        q.eq("fiscalYearId", fiscalYear._id).eq("isApproved", true),
+      )
+      .collect();
+    const holidayWeeks = identifyHolidayWeeks(calendarEvents, config.majorHolidayNames);
 
-        const selected = sortCandidatesByAvailabilityAndHeadroom(candidates)[0];
-        await ctx.db.patch(assignment._id, {
-          physicianId: selected.physicianId as Id<"physicians">,
-          assignedBy: admin.actorPhysicianId ?? undefined,
-          assignedAt: Date.now(),
+    // Load prior-year holiday assignments for parity
+    let parityScores = new Map<string, Map<string, number>>();
+    if (fiscalYear.previousFiscalYearId) {
+      const priorCalendar = await ctx.db
+        .query("masterCalendars")
+        .withIndex("by_fiscalYear", (q) => q.eq("fiscalYearId", fiscalYear.previousFiscalYearId!))
+        .collect();
+      const publishedPrior = priorCalendar.find((c) => c.status === "published");
+
+      if (publishedPrior) {
+        const priorAssignments = await ctx.db
+          .query("assignments")
+          .withIndex("by_calendar", (q) => q.eq("masterCalendarId", publishedPrior._id))
+          .collect();
+        const priorEvents = await ctx.db
+          .query("calendarEvents")
+          .withIndex("by_fiscalYear_approved", (q) =>
+            q.eq("fiscalYearId", fiscalYear.previousFiscalYearId!).eq("isApproved", true),
+          )
+          .collect();
+        const priorHolidayWeeks = identifyHolidayWeeks(priorEvents, config.majorHolidayNames);
+        const priorHolidayMap = buildPriorYearHolidayMap(
+          priorAssignments.map((a) => ({
+            weekId: String(a.weekId),
+            physicianId: a.physicianId ? String(a.physicianId) : null,
+          })),
+          priorHolidayWeeks,
+        );
+
+        parityScores = computeHolidayParityScores({
+          majorHolidayNames: config.majorHolidayNames,
+          priorYearHolidayAssignments: priorHolidayMap,
+          currentYearCandidates: activePhysicians.map((p) => String(p._id)),
         });
-
-        assignment.physicianId = selected.physicianId as Id<"physicians">;
-        assignedCount += 1;
-
-        const rotationId = String(rotation._id);
-        const weekMap = rotationWeekToPhysician.get(rotationId) ?? new Map<number, string>();
-        weekMap.set(week.weekNumber, selected.physicianId);
-        rotationWeekToPhysician.set(rotationId, weekMap);
-
-        const previousRotationCfte = runningRotationCfteByPhysician.get(selected.physicianId) ?? 0;
-        runningRotationCfteByPhysician.set(selected.physicianId, previousRotationCfte + rotation.cftePerWeek);
       }
     }
 
-    const remainingUnstaffedCount = Array.from(assignmentsByCell.values()).filter(
-      (assignment) => !assignment.physicianId,
-    ).length;
+    // Convert preference map to AutoFillRotationPreference format
+    const autoFillPrefMap = new Map<string, Map<string, AutoFillRotationPreference>>();
+    for (const [pid, rotMap] of preferencesByPhysicianRotation) {
+      const converted = new Map<string, AutoFillRotationPreference>();
+      for (const [rid, pref] of rotMap) {
+        converted.set(rid, {
+          preferenceRank: pref.preferenceRank,
+          avoid: pref.avoid,
+          deprioritize: pref.deprioritize,
+        });
+      }
+      autoFillPrefMap.set(pid, converted);
+    }
+
+    // Run the multi-pass constraint solver
+    const result = runAutoFill({
+      weeks: weeks.map((w) => ({
+        _id: String(w._id),
+        weekNumber: w.weekNumber,
+      })),
+      rotations: activeRotations.map((r) => ({
+        _id: String(r._id),
+        name: r.name,
+        cftePerWeek: r.cftePerWeek,
+        minStaff: r.minStaff,
+        maxConsecutiveWeeks: r.maxConsecutiveWeeks,
+        sortOrder: r.sortOrder,
+        isActive: r.isActive,
+      })),
+      physicians: activePhysicians.map((p) => ({
+        _id: String(p._id),
+        isActive: p.isActive,
+      })),
+      existingAssignments: assignments.map((a) => ({
+        _id: String(a._id),
+        weekId: String(a.weekId),
+        rotationId: String(a.rotationId),
+        physicianId: a.physicianId ? String(a.physicianId) : null,
+        assignmentSource: a.assignmentSource ?? null,
+      })),
+      availabilityMap: availabilityByPhysicianWeek,
+      preferenceMap: autoFillPrefMap,
+      targetCfteMap: targetCfteByPhysician,
+      clinicCfteMap: clinicCfteByPhysician,
+      holidayWeeks,
+      parityScores,
+      config,
+      fiscalYearId: String(fiscalYear._id),
+    });
+
+    // Apply solver results to the database
+    const assignmentsByCell = new Map<string, Doc<"assignments">>(
+      assignments.map((a) => [toCellKey(a.weekId, a.rotationId), a]),
+    );
+
+    let assignedCount = 0;
+    for (const solverAssignment of result.assignments) {
+      const cellKey = `${solverAssignment.weekId}:${solverAssignment.rotationId}`;
+      const dbAssignment = assignmentsByCell.get(cellKey);
+      if (!dbAssignment) continue;
+
+      await ctx.db.patch(dbAssignment._id, {
+        physicianId: solverAssignment.physicianId as Id<"physicians">,
+        assignedBy: admin.actorPhysicianId ?? undefined,
+        assignedAt: Date.now(),
+        assignmentSource: "auto" as const,
+      });
+      assignedCount++;
+
+      // Write decision log entry
+      await ctx.db.insert("autoFillDecisionLog", {
+        masterCalendarId: draftCalendar._id,
+        weekId: dbAssignment.weekId,
+        rotationId: dbAssignment.rotationId,
+        selectedPhysicianId: solverAssignment.physicianId as Id<"physicians">,
+        score: solverAssignment.score,
+        scoreBreakdown: JSON.stringify(solverAssignment.breakdown),
+        alternativesConsidered: 0, // simplified for now
+        passNumber: solverAssignment.passNumber,
+        createdAt: Date.now(),
+      });
+    }
 
     return {
       message:
         assignedCount > 0
-          ? `Auto-assign complete: filled ${assignedCount} slot(s)`
-          : "Auto-assign complete: no eligible assignments found",
+          ? `Auto-fill complete: filled ${assignedCount} slot(s) (avg score: ${result.metrics.avgScore}, parity: ${result.metrics.holidayParityScore})`
+          : "Auto-fill complete: no eligible assignments found",
       assignedCount,
-      remainingUnstaffedCount,
+      remainingUnstaffedCount: result.unfilled.length,
+    };
+  },
+});
+
+export const clearAutoFilledAssignments = mutation({
+  args: {},
+  returns: v.object({
+    message: v.string(),
+    clearedCount: v.number(),
+  }),
+  handler: async (ctx) => {
+    const { fiscalYear } = await getAdminAndCurrentFiscalYear(ctx);
+    if (!fiscalYear) throw new Error("No active fiscal year available");
+    requireBuildingWindow(fiscalYear);
+
+    const draftCalendar = await getDraftCalendarForFiscalYear(ctx, fiscalYear._id);
+    if (!draftCalendar) throw new Error("No draft calendar found");
+
+    const assignments = await ctx.db
+      .query("assignments")
+      .withIndex("by_calendar", (q) => q.eq("masterCalendarId", draftCalendar._id))
+      .collect();
+
+    let clearedCount = 0;
+    for (const assignment of assignments) {
+      if (assignment.assignmentSource === "auto" && assignment.physicianId) {
+        await ctx.db.patch(assignment._id, {
+          physicianId: undefined,
+          assignedBy: undefined,
+          assignedAt: undefined,
+          assignmentSource: undefined,
+        });
+        clearedCount++;
+      }
+    }
+
+    // Clear decision log for this calendar
+    const logEntries = await ctx.db
+      .query("autoFillDecisionLog")
+      .withIndex("by_calendar", (q) => q.eq("masterCalendarId", draftCalendar._id))
+      .collect();
+    for (const entry of logEntries) {
+      await ctx.db.delete(entry._id);
+    }
+
+    return {
+      message: clearedCount > 0
+        ? `Cleared ${clearedCount} auto-filled assignment(s)`
+        : "No auto-filled assignments to clear",
+      clearedCount,
     };
   },
 });

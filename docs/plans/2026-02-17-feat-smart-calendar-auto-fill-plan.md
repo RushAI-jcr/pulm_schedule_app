@@ -301,23 +301,23 @@ export async function runAutoFill(params: {
   - Max iterations to prevent infinite loops
   - Never swap manually-anchored assignments
 
-- [ ] Update `autoAssignCurrentFiscalYearDraft` mutation in `convex/functions/masterCalendar.ts`:
+- [x] Update `autoAssignCurrentFiscalYearDraft` mutation in `convex/functions/masterCalendar.ts`:
   - Keep the same public API (`args: {}, returns: { message, assignedCount, remainingUnstaffedCount }`)
   - Add new return fields: `metrics` object with quality scores
   - Replace greedy loop with call to `runAutoFill()`
   - Write decision log entries for each assignment
   - Audit log the auto-fill run with metrics summary
 
-- [ ] Add `assignmentSource` field to assignments for undo support:
+- [x] Add `assignmentSource` field to assignments for undo support:
   - Add `assignmentSource: v.optional(v.union(v.literal("auto"), v.literal("manual"), v.literal("import")))` to assignments in `convex/schema.ts`
   - Auto-fill sets `assignmentSource: "auto"`, manual edits set `"manual"`, imports set `"import"`
   - Add `clearAutoFilledAssignments` mutation: clears all `assignmentSource: "auto"` assignments for a given calendar
 
-- [ ] Add hard constraint: same-week double-booking prevention
+- [x] Add hard constraint: same-week double-booking prevention
   - Before assigning, check `weekToPhysicianMap` to ensure physician isn't already assigned to another rotation in that week
   - Update map after each assignment
 
-- [ ] Add hard constraint: `minStaff` enforcement
+- [x] Add hard constraint: `minStaff` enforcement
   - After Pass 1, check each rotation-week for `minStaff` compliance
   - If a rotation needs 2+ physicians per week, the grid structure may need to support multiple assignments per cell (or create duplicate cells)
   - For MVP: flag minStaff violations in metrics; handle in Pass 2 by prioritizing understaffed cells
