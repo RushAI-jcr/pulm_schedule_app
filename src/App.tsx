@@ -76,7 +76,12 @@ function Content() {
 
 function Dashboard() {
   const [adminPage, setAdminPage] = useState<
-    "overview" | "rotations" | "clinicTypes" | "cfteTargets" | "clinicAssignments"
+    | "overview"
+    | "rotations"
+    | "clinicTypes"
+    | "cfteTargets"
+    | "clinicAssignments"
+    | "masterCalendar"
   >("overview");
   const myProfile = useQuery(api.functions.physicians.getMyProfile);
   const physicianCount = useQuery(api.functions.physicians.getPhysicianCount);
@@ -130,6 +135,10 @@ function Dashboard() {
     api.functions.physicianClinics.getCurrentFiscalYearPhysicianClinics,
     myProfile?.role === "admin" ? {} : "skip",
   );
+  const adminMasterCalendarBundle = useQuery(
+    api.functions.masterCalendar.getCurrentFiscalYearMasterCalendarDraft,
+    myProfile?.role === "admin" ? {} : "skip",
+  );
 
   if (
     myProfile === undefined ||
@@ -145,6 +154,7 @@ function Dashboard() {
     (myProfile?.role === "admin" && adminClinicTypesBundle === undefined) ||
     (myProfile?.role === "admin" && adminCfteTargetsBundle === undefined) ||
     (myProfile?.role === "admin" && adminClinicAssignmentsBundle === undefined) ||
+    (myProfile?.role === "admin" && adminMasterCalendarBundle === undefined) ||
     (myProfile?.role === "admin" && adminRequestBundle === undefined) ||
     (myProfile?.role === "admin" && adminTradeQueue === undefined)
   ) {
@@ -163,6 +173,7 @@ function Dashboard() {
   const showAdminCfteTargetsPage = myProfile.role === "admin" && adminPage === "cfteTargets";
   const showAdminClinicAssignmentsPage =
     myProfile.role === "admin" && adminPage === "clinicAssignments";
+  const showAdminMasterCalendarPage = myProfile.role === "admin" && adminPage === "masterCalendar";
 
   return (
     <div className="space-y-6">
@@ -198,6 +209,12 @@ function Dashboard() {
           >
             Clinic Assignments
           </button>
+          <button
+            className={`px-3 py-2 text-sm rounded ${adminPage === "masterCalendar" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}
+            onClick={() => setAdminPage("masterCalendar")}
+          >
+            Master Calendar
+          </button>
         </div>
       ) : null}
 
@@ -209,6 +226,8 @@ function Dashboard() {
         <AdminCfteTargetsPage bundle={adminCfteTargetsBundle} />
       ) : showAdminClinicAssignmentsPage ? (
         <AdminClinicAssignmentsPage bundle={adminClinicAssignmentsBundle} />
+      ) : showAdminMasterCalendarPage ? (
+        <AdminMasterCalendarPage bundle={adminMasterCalendarBundle} />
       ) : (
         <>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -958,6 +977,113 @@ function AdminClinicAssignmentsPage({ bundle }: { bundle: any }) {
           </table>
         </div>
       </div>
+    </div>
+  );
+}
+
+function AdminMasterCalendarPage({ bundle }: { bundle: any }) {
+  const createDraft = useMutation(api.functions.masterCalendar.createCurrentFiscalYearMasterCalendarDraft);
+  const [isCreating, setIsCreating] = useState(false);
+
+  if (!bundle?.fiscalYear) {
+    return (
+      <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
+        <h3 className="text-lg font-semibold mb-2">Master Calendar</h3>
+        <p className="text-sm text-gray-600">No active fiscal year found. Create/activate a fiscal year first.</p>
+      </div>
+    );
+  }
+
+  const hasDraft = Boolean(bundle.calendar);
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm space-y-3">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <h3 className="text-lg font-semibold">Master Calendar Skeleton</h3>
+            <p className="text-sm text-gray-600">
+              {bundle.fiscalYear.label} ({bundle.fiscalYear.status}) - read-only grid to verify weeks and active
+              rotations before assignment editing
+            </p>
+            {hasDraft ? (
+              <p className="text-xs text-gray-500 mt-1">Draft v{bundle.calendar.version}</p>
+            ) : null}
+          </div>
+          {!hasDraft ? (
+            <button
+              onClick={async () => {
+                setIsCreating(true);
+                try {
+                  const result = await createDraft({});
+                  toast.success(result.message);
+                } catch (error) {
+                  toast.error(error instanceof Error ? error.message : "Failed to create draft");
+                } finally {
+                  setIsCreating(false);
+                }
+              }}
+              disabled={isCreating}
+              className="px-3 py-2 text-sm rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+            >
+              {isCreating ? "Creating..." : "Create Draft Calendar"}
+            </button>
+          ) : null}
+        </div>
+      </div>
+
+      {!hasDraft ? (
+        <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm text-sm text-gray-600">
+          No draft calendar yet. Create one to review the week/rotation grid.
+        </div>
+      ) : (
+        <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
+          <div className="border border-gray-200 rounded-md overflow-auto max-h-[640px]">
+            <table className="w-full text-xs">
+              <thead className="bg-gray-50 text-gray-700 sticky top-0">
+                <tr>
+                  <th className="text-left px-3 py-2 min-w-[150px]">Week</th>
+                  {(bundle.rotations ?? []).map((rotation: any) => (
+                    <th key={String(rotation._id)} className="text-left px-3 py-2 min-w-[120px]">
+                      <div className="font-medium">{rotation.name}</div>
+                      <div className="text-[11px] text-gray-500">{rotation.abbreviation}</div>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {(bundle.grid ?? []).length === 0 ? (
+                  <tr>
+                    <td className="px-3 py-3 text-gray-500" colSpan={(bundle.rotations?.length ?? 0) + 1}>
+                      No week/rotation cells available. Configure weeks and active rotations.
+                    </td>
+                  </tr>
+                ) : (
+                  (bundle.grid ?? []).map((row: any) => (
+                    <tr key={String(row.weekId)} className="border-t border-gray-100">
+                      <td className="px-3 py-2">
+                        <div className="font-medium">Week {row.weekNumber}</div>
+                        <div className="text-[11px] text-gray-500">
+                          {row.startDate} to {row.endDate}
+                        </div>
+                      </td>
+                      {(row.cells ?? []).map((cell: any, index: number) => (
+                        <td key={`${String(row.weekId)}:${index}`} className="px-3 py-2">
+                          {cell.physicianId ? (
+                            <span className="text-gray-700">Assigned</span>
+                          ) : (
+                            <span className="text-gray-400">-</span>
+                          )}
+                        </td>
+                      ))}
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

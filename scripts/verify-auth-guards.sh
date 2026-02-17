@@ -40,4 +40,7 @@ check convex/functions/cfteTargets.ts "await requireAdmin\(ctx\)" "cfte target a
 # Physician clinic assignment functions
 check convex/functions/physicianClinics.ts "await requireAdmin\(ctx\)" "physician clinic admin guard"
 
+# Master calendar functions
+check convex/functions/masterCalendar.ts "await requireAdmin\(ctx\)" "master calendar admin guard"
+
 echo "Auth guard checks passed"
