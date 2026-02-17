@@ -15,7 +15,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@convex-dev/auth": "^0.0.80",
+    "@convex-dev/workos": "^0.0.1",
+    "@workos-inc/authkit-nextjs": "^2.14.0",
     "clsx": "^2.1.1",
     "convex": "^1.31.2",
     "next": "^15.5.4",

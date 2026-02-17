@@ -1,27 +1,13 @@
 "use client";
 
 import { Authenticated, Unauthenticated, useMutation, useQuery } from "convex/react";
-import { api } from "../convex/_generated/api";
-import { SignInForm } from "./SignInForm";
-import { SignOutButton } from "./SignOutButton";
+import { api } from "@/lib/convex";
+import { SignInForm } from "@/components/auth/SignInForm";
+import { SignOutButton } from "@/components/auth/SignOutButton";
 import { toast, Toaster } from "sonner";
 import { useEffect, useMemo, useState } from "react";
-
-type Availability = "green" | "yellow" | "red";
-
-const availabilityOptions: Array<{ value: Availability; label: string }> = [
-  { value: "green", label: "Green - OK to work" },
-  { value: "yellow", label: "Yellow - Prefer not to" },
-  { value: "red", label: "Red - Do not schedule" },
-];
-
-const defaultClinicTypeNames = [
-  "Pulmonary RAB",
-  "Sleep Clinic",
-  "CF Clinic",
-  "Pulmonary South Loop",
-  "Pulmonary Oak Park",
-];
+import { Availability, AvailabilityOption } from "@/types";
+import { availabilityOptions, defaultClinicTypeNames } from "@/constants";
 
 export default function App() {
   return (
@@ -995,7 +981,12 @@ function AdminClinicAssignmentsPage({ bundle }: { bundle: any }) {
 
 function AdminMasterCalendarPage({ bundle }: { bundle: any }) {
   const createDraft = useMutation(api.functions.masterCalendar.createCurrentFiscalYearMasterCalendarDraft);
+  const autoAssign = useMutation(api.functions.masterCalendar.autoAssignCurrentFiscalYearDraft);
+  const assignDraftCell = useMutation(api.functions.masterCalendar.assignCurrentFiscalYearDraftCell);
   const [isCreating, setIsCreating] = useState(false);
+  const [isAutoAssigning, setIsAutoAssigning] = useState(false);
+  const [assigningCellKey, setAssigningCellKey] = useState<string | null>(null);
+  const [draggingPayload, setDraggingPayload] = useState<{ physicianId: string; weekId: string } | null>(null);
 
   if (!bundle?.fiscalYear) {
     return (
@@ -1007,16 +998,67 @@ function AdminMasterCalendarPage({ bundle }: { bundle: any }) {
   }
 
   const hasDraft = Boolean(bundle.calendar);
+  const physicians = bundle.physicians ?? [];
+  const weeks = bundle.weeks ?? [];
+  const rotations = bundle.rotations ?? [];
+
+  const physicianById = useMemo(() => {
+    return new Map<string, any>(
+      physicians.map((physician: any) => [String(physician._id), physician]),
+    );
+  }, [physicians]);
+
+  const availabilityByKey = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const entry of bundle.availabilityEntries ?? []) {
+      map.set(`${String(entry.physicianId)}:${String(entry.weekId)}`, entry.availability);
+    }
+    return map;
+  }, [bundle.availabilityEntries]);
+
+  const cfteByPhysicianId = useMemo(() => {
+    return new Map<string, any>(
+      (bundle.cfteSummary ?? []).map((row: any) => [String(row.physicianId), row]),
+    );
+  }, [bundle.cfteSummary]);
+
+  const getAvailabilityClasses = (availability: string) => {
+    if (availability === "green") return "bg-emerald-100 text-emerald-800 border-emerald-200";
+    if (availability === "red") return "bg-rose-100 text-rose-800 border-rose-200";
+    return "bg-amber-100 text-amber-800 border-amber-200";
+  };
+
+  const assignToCell = async (weekId: string, rotationId: string, physicianId: string | null) => {
+    const cellKey = `${weekId}:${rotationId}`;
+    setAssigningCellKey(cellKey);
+    try {
+      const result = await assignDraftCell({
+        weekId: weekId as any,
+        rotationId: rotationId as any,
+        physicianId: physicianId ? (physicianId as any) : undefined,
+      });
+      if ((result.warnings ?? []).length > 0) {
+        for (const warning of result.warnings) {
+          toast.warning(String(warning));
+        }
+      }
+      toast.success(result.message);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to save assignment");
+    } finally {
+      setAssigningCellKey(null);
+    }
+  };
 
   return (
     <div className="space-y-6">
       <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm space-y-3">
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div>
-            <h3 className="text-lg font-semibold">Master Calendar Skeleton</h3>
+            <h3 className="text-lg font-semibold">Master Calendar Builder</h3>
             <p className="text-sm text-gray-600">
-              {bundle.fiscalYear.label} ({bundle.fiscalYear.status}) - read-only grid to verify weeks and active
-              rotations before assignment editing
+              {bundle.fiscalYear.label} ({bundle.fiscalYear.status}) - drag physicians from the heatmap into
+              week/rotation cells
             </p>
             {hasDraft ? (
               <p className="text-xs text-gray-500 mt-1">Draft v{bundle.calendar.version}</p>
@@ -1044,18 +1086,187 @@ function AdminMasterCalendarPage({ bundle }: { bundle: any }) {
         </div>
       </div>
 
+      <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm space-y-3">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div>
+            <h4 className="font-semibold">Availability Heatmap</h4>
+            <p className="text-xs text-gray-500">
+              Green and yellow cells are draggable by week. Red cells are excluded from auto-assign.
+            </p>
+          </div>
+          <div className="flex items-center gap-2 text-xs flex-wrap justify-end">
+            {hasDraft ? (
+              <button
+                onClick={async () => {
+                  setIsAutoAssigning(true);
+                  try {
+                    const result = await autoAssign({});
+                    toast.success(
+                      `${result.message} (${result.remainingUnstaffedCount} slot(s) still unstaffed)`,
+                    );
+                  } catch (error) {
+                    toast.error(error instanceof Error ? error.message : "Failed to auto-assign");
+                  } finally {
+                    setIsAutoAssigning(false);
+                  }
+                }}
+                disabled={isAutoAssigning}
+                className="px-3 py-1.5 text-xs rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
+              >
+                {isAutoAssigning ? "Running..." : "⚡ Auto-Assign"}
+              </button>
+            ) : null}
+            <span className="px-2 py-1 rounded bg-emerald-100 text-emerald-800">Green</span>
+            <span className="px-2 py-1 rounded bg-amber-100 text-amber-800">Yellow</span>
+            <span className="px-2 py-1 rounded bg-rose-100 text-rose-800">Red</span>
+          </div>
+        </div>
+
+        <div className="border border-gray-200 rounded-md overflow-auto max-h-[340px]">
+          <table className="w-full text-[11px]">
+            <thead className="bg-gray-50 text-gray-700 sticky top-0">
+              <tr>
+                <th className="text-left px-2 py-2 min-w-[220px]">Physician</th>
+                {weeks.map((week: any) => (
+                  <th key={String(week._id)} className="px-1 py-2 min-w-[32px] text-center">
+                    W{week.weekNumber}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {physicians.length === 0 ? (
+                <tr>
+                  <td className="px-3 py-3 text-gray-500" colSpan={weeks.length + 1}>
+                    No active physicians found.
+                  </td>
+                </tr>
+              ) : (
+                physicians.map((physician: any) => {
+                  const physicianId = String(physician._id);
+                  const cfte = cfteByPhysicianId.get(physicianId);
+                  return (
+                    <tr key={physicianId} className="border-t border-gray-100">
+                      <td className="px-2 py-2">
+                        <div className="font-medium text-xs">{physician.fullName}</div>
+                        <div className="text-[10px] text-gray-500">
+                          {physician.initials}
+                          {cfte ? (
+                            <>
+                              {" "}
+                              • {cfte.totalCfte.toFixed(3)}
+                              {cfte.targetCfte === null ? "" : ` / ${cfte.targetCfte.toFixed(3)}`}
+                            </>
+                          ) : null}
+                        </div>
+                      </td>
+                      {weeks.map((week: any) => {
+                        const weekId = String(week._id);
+                        const availability =
+                          availabilityByKey.get(`${physicianId}:${weekId}`) ?? "yellow";
+                        return (
+                          <td key={`${physicianId}:${weekId}`} className="px-1 py-1">
+                            <div
+                              draggable
+                              onDragStart={(event) => {
+                                const payload = JSON.stringify({ physicianId, weekId });
+                                event.dataTransfer.setData("application/json", payload);
+                                event.dataTransfer.effectAllowed = "copy";
+                                setDraggingPayload({ physicianId, weekId });
+                              }}
+                              onDragEnd={() => setDraggingPayload(null)}
+                              className={`h-6 rounded border text-center text-[10px] font-semibold cursor-grab active:cursor-grabbing select-none ${getAvailabilityClasses(
+                                availability,
+                              )}`}
+                              title={`${physician.fullName} • Week ${week.weekNumber} • ${availability}`}
+                            >
+                              {availability.charAt(0).toUpperCase()}
+                            </div>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
+        <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+          <h4 className="font-semibold">cFTE Tracking</h4>
+          <p className="text-xs text-gray-500">Updated after manual drops and auto-assign runs.</p>
+        </div>
+        <div className="border border-gray-200 rounded-md overflow-auto max-h-[240px]">
+          <table className="w-full text-xs">
+            <thead className="bg-gray-50 text-gray-700 sticky top-0">
+              <tr>
+                <th className="text-left px-3 py-2">Physician</th>
+                <th className="text-left px-3 py-2">Clinic</th>
+                <th className="text-left px-3 py-2">Rotation</th>
+                <th className="text-left px-3 py-2">Total</th>
+                <th className="text-left px-3 py-2">Target</th>
+                <th className="text-left px-3 py-2">Headroom</th>
+                <th className="text-left px-3 py-2">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(bundle.cfteSummary ?? []).length === 0 ? (
+                <tr>
+                  <td className="px-3 py-3 text-gray-500" colSpan={7}>
+                    No cFTE rows available.
+                  </td>
+                </tr>
+              ) : (
+                (bundle.cfteSummary ?? []).map((row: any) => (
+                  <tr key={String(row.physicianId)} className="border-t border-gray-100">
+                    <td className="px-3 py-2">
+                      <div className="font-medium">{row.physicianName}</div>
+                      <div className="text-[10px] text-gray-500">{row.initials}</div>
+                    </td>
+                    <td className="px-3 py-2">{row.clinicCfte.toFixed(3)}</td>
+                    <td className="px-3 py-2">{row.rotationCfte.toFixed(3)}</td>
+                    <td className="px-3 py-2">{row.totalCfte.toFixed(3)}</td>
+                    <td className="px-3 py-2">
+                      {row.targetCfte === null ? "-" : row.targetCfte.toFixed(3)}
+                    </td>
+                    <td className="px-3 py-2">
+                      {row.headroom === null ? "-" : row.headroom.toFixed(3)}
+                    </td>
+                    <td className="px-3 py-2">
+                      {row.targetCfte === null ? (
+                        <span className="inline-flex px-2 py-1 rounded bg-gray-100 text-gray-700">no target</span>
+                      ) : row.isOverTarget ? (
+                        <span className="inline-flex px-2 py-1 rounded bg-rose-100 text-rose-800">over</span>
+                      ) : (
+                        <span className="inline-flex px-2 py-1 rounded bg-emerald-100 text-emerald-800">within</span>
+                      )}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       {!hasDraft ? (
         <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm text-sm text-gray-600">
-          No draft calendar yet. Create one to review the week/rotation grid.
+          No draft calendar yet. Create one to begin drag-and-drop assignments.
         </div>
       ) : (
         <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
+          <div className="mb-3 text-xs text-gray-500">
+            Drag from the heatmap and drop into a rotation cell for the same week.
+          </div>
           <div className="border border-gray-200 rounded-md overflow-auto max-h-[640px]">
             <table className="w-full text-xs">
               <thead className="bg-gray-50 text-gray-700 sticky top-0">
                 <tr>
                   <th className="text-left px-3 py-2 min-w-[150px]">Week</th>
-                  {(bundle.rotations ?? []).map((rotation: any) => (
+                  {rotations.map((rotation: any) => (
                     <th key={String(rotation._id)} className="text-left px-3 py-2 min-w-[120px]">
                       <div className="font-medium">{rotation.name}</div>
                       <div className="text-[11px] text-gray-500">{rotation.abbreviation}</div>
@@ -1066,7 +1277,7 @@ function AdminMasterCalendarPage({ bundle }: { bundle: any }) {
               <tbody>
                 {(bundle.grid ?? []).length === 0 ? (
                   <tr>
-                    <td className="px-3 py-3 text-gray-500" colSpan={(bundle.rotations?.length ?? 0) + 1}>
+                    <td className="px-3 py-3 text-gray-500" colSpan={rotations.length + 1}>
                       No week/rotation cells available. Configure weeks and active rotations.
                     </td>
                   </tr>
@@ -1079,15 +1290,110 @@ function AdminMasterCalendarPage({ bundle }: { bundle: any }) {
                           {row.startDate} to {row.endDate}
                         </div>
                       </td>
-                      {(row.cells ?? []).map((cell: any, index: number) => (
-                        <td key={`${String(row.weekId)}:${index}`} className="px-3 py-2">
-                          {cell.physicianId ? (
-                            <span className="text-gray-700">Assigned</span>
-                          ) : (
-                            <span className="text-gray-400">-</span>
-                          )}
-                        </td>
-                      ))}
+                      {(row.cells ?? []).map((cell: any, index: number) => {
+                        const weekId = String(row.weekId);
+                        const rotationId = String(cell.rotationId);
+                        const assignedPhysicianId = cell.physicianId ? String(cell.physicianId) : null;
+                        const assignedPhysician = assignedPhysicianId
+                          ? physicianById.get(assignedPhysicianId)
+                          : null;
+                        const assignedAvailability = assignedPhysicianId
+                          ? availabilityByKey.get(`${assignedPhysicianId}:${weekId}`) ?? "yellow"
+                          : null;
+                        const isDroppingToSameWeek = draggingPayload?.weekId === weekId;
+                        const isSavingCell = assigningCellKey === `${weekId}:${rotationId}`;
+
+                        return (
+                          <td
+                            key={`${String(row.weekId)}:${index}`}
+                            className={`px-2 py-2 align-top ${isDroppingToSameWeek ? "bg-blue-50/50" : ""}`}
+                            onDragOver={(event) => {
+                              event.preventDefault();
+                              event.dataTransfer.dropEffect = "copy";
+                            }}
+                            onDrop={(event) => {
+                              event.preventDefault();
+                              const rawPayload = event.dataTransfer.getData("application/json");
+                              if (!rawPayload) return;
+
+                              try {
+                                const payload = JSON.parse(rawPayload) as {
+                                  physicianId?: string;
+                                  weekId?: string;
+                                };
+                                if (!payload.physicianId || !payload.weekId) {
+                                  toast.error("Invalid drag payload");
+                                  return;
+                                }
+                                if (payload.weekId !== weekId) {
+                                  toast.error(
+                                    "Drop blocked: physician must be dragged from the same week in heatmap",
+                                  );
+                                  return;
+                                }
+                                void assignToCell(weekId, rotationId, payload.physicianId);
+                              } catch {
+                                toast.error("Invalid drag payload");
+                              } finally {
+                                setDraggingPayload(null);
+                              }
+                            }}
+                          >
+                            <div className="min-h-[64px] rounded border border-dashed border-gray-300 p-2 space-y-1 bg-white">
+                              {assignedPhysician ? (
+                                <>
+                                  <div
+                                    draggable
+                                    onDragStart={(event) => {
+                                      const payload = JSON.stringify({
+                                        physicianId: assignedPhysicianId,
+                                        weekId,
+                                      });
+                                      event.dataTransfer.setData("application/json", payload);
+                                      event.dataTransfer.effectAllowed = "copy";
+                                      setDraggingPayload({
+                                        physicianId: String(assignedPhysicianId),
+                                        weekId,
+                                      });
+                                    }}
+                                    onDragEnd={() => setDraggingPayload(null)}
+                                    className="rounded bg-blue-100 text-blue-800 px-2 py-1 text-[11px] font-medium cursor-grab active:cursor-grabbing"
+                                  >
+                                    {assignedPhysician.initials}
+                                  </div>
+                                  <div className="text-[10px] text-gray-600">
+                                    {assignedPhysician.fullName}
+                                  </div>
+                                  {assignedAvailability ? (
+                                    <span
+                                      className={`inline-flex rounded px-1.5 py-0.5 text-[10px] font-medium ${getAvailabilityClasses(
+                                        assignedAvailability,
+                                      )}`}
+                                    >
+                                      {assignedAvailability}
+                                    </span>
+                                  ) : null}
+                                  <div>
+                                    <button
+                                      onClick={() => {
+                                        void assignToCell(weekId, rotationId, null);
+                                      }}
+                                      disabled={isSavingCell}
+                                      className="px-1.5 py-0.5 text-[10px] rounded bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:opacity-50"
+                                    >
+                                      Clear
+                                    </button>
+                                  </div>
+                                </>
+                              ) : (
+                                <div className="text-[11px] text-gray-400 pt-4 text-center">
+                                  {isSavingCell ? "Saving..." : "Drop physician"}
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                        );
+                      })}
                     </tr>
                   ))
                 )}
@@ -1601,6 +1907,9 @@ function TradePanel({
       <div>
         <h3 className="text-lg font-semibold">Trades</h3>
         <p className="text-sm text-gray-600">One-for-one swaps after annual schedule publication.</p>
+        <a href="/trades" className="inline-block mt-1 text-xs text-blue-700 hover:text-blue-800 underline">
+          Open dedicated Trades & Swaps page
+        </a>
       </div>
 
       {!tradeOptions?.enabled ? (

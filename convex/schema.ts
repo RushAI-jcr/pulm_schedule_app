@@ -1,11 +1,23 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
-import { authTables } from "@convex-dev/auth/server";
 
 const applicationTables = {
   // ========================================
   // USERS & ROLES
   // ========================================
+  users: defineTable({
+    workosUserId: v.string(),
+    email: v.string(),
+    firstName: v.optional(v.string()),
+    lastName: v.optional(v.string()),
+    role: v.union(v.literal("physician"), v.literal("admin")),
+    physicianId: v.optional(v.id("physicians")),
+    lastLoginAt: v.number(),
+  })
+    .index("by_workosUserId", ["workosUserId"])
+    .index("by_email", ["email"])
+    .index("by_role", ["role"]),
+
   physicians: defineTable({
     userId: v.optional(v.string()), // WorkOS user ID from AuthKit (e.g., "user_01...")
     firstName: v.string(),
@@ -267,6 +279,5 @@ const applicationTables = {
 };
 
 export default defineSchema({
-  ...authTables,
   ...applicationTables,
 });

@@ -1,28 +1,34 @@
-import { convexAuth, getAuthUserId } from "@convex-dev/auth/server";
-import WorkOS from "@auth/core/providers/workos";
 import { query } from "./_generated/server";
 
-export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
-  providers: [
-    WorkOS({
-      issuer: process.env.AUTH_WORKOS_ISSUER ?? "https://api.workos.com/",
-      ...(process.env.AUTH_WORKOS_CONNECTION
-        ? { connection: process.env.AUTH_WORKOS_CONNECTION }
-        : {}),
-    }),
-  ],
-});
-
 export const loggedInUser = query({
+  args: {},
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
       return null;
     }
-    const user = await ctx.db.get("users", userId);
-    if (!user) {
-      return null;
+
+    const users = await ctx.db
+      .query("users")
+      .withIndex("by_workosUserId", (q) => q.eq("workosUserId", identity.subject))
+      .collect();
+
+    if (users.length > 1) {
+      throw new Error("Data integrity error: duplicate app users for WorkOS subject");
     }
-    return user;
+
+    const appUser = users[0] ?? null;
+    if (!appUser) {
+      return {
+        workosUserId: identity.subject,
+        email: identity.email ?? null,
+        firstName: null,
+        lastName: null,
+        role: null,
+        physicianId: null,
+      };
+    }
+
+    return appUser;
   },
 });

@@ -29,6 +29,7 @@ import type * as lib_cfteTargets from "../lib/cfteTargets.js";
 import type * as lib_clinicTypes from "../lib/clinicTypes.js";
 import type * as lib_fiscalYear from "../lib/fiscalYear.js";
 import type * as lib_masterCalendar from "../lib/masterCalendar.js";
+import type * as lib_masterCalendarAssignments from "../lib/masterCalendarAssignments.js";
 import type * as lib_physicianClinics from "../lib/physicianClinics.js";
 import type * as lib_rateLimit from "../lib/rateLimit.js";
 import type * as lib_workflowPolicy from "../lib/workflowPolicy.js";
@@ -62,6 +63,7 @@ declare const fullApi: ApiFromModules<{
   "lib/clinicTypes": typeof lib_clinicTypes;
   "lib/fiscalYear": typeof lib_fiscalYear;
   "lib/masterCalendar": typeof lib_masterCalendar;
+  "lib/masterCalendarAssignments": typeof lib_masterCalendarAssignments;
   "lib/physicianClinics": typeof lib_physicianClinics;
   "lib/rateLimit": typeof lib_rateLimit;
   "lib/workflowPolicy": typeof lib_workflowPolicy;
