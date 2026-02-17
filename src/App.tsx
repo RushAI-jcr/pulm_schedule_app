@@ -82,6 +82,7 @@ function Dashboard() {
     | "cfteTargets"
     | "clinicAssignments"
     | "masterCalendar"
+    | "auditLog"
   >("overview");
   const myProfile = useQuery(api.functions.physicians.getMyProfile);
   const physicianCount = useQuery(api.functions.physicians.getPhysicianCount);
@@ -174,6 +175,7 @@ function Dashboard() {
   const showAdminClinicAssignmentsPage =
     myProfile.role === "admin" && adminPage === "clinicAssignments";
   const showAdminMasterCalendarPage = myProfile.role === "admin" && adminPage === "masterCalendar";
+  const showAdminAuditLogPage = myProfile.role === "admin" && adminPage === "auditLog";
 
   return (
     <div className="space-y-6">
@@ -215,6 +217,12 @@ function Dashboard() {
           >
             Master Calendar
           </button>
+          <button
+            className={`px-3 py-2 text-sm rounded ${adminPage === "auditLog" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}
+            onClick={() => setAdminPage("auditLog")}
+          >
+            Audit Log
+          </button>
         </div>
       ) : null}
 
@@ -228,6 +236,8 @@ function Dashboard() {
         <AdminClinicAssignmentsPage bundle={adminClinicAssignmentsBundle} />
       ) : showAdminMasterCalendarPage ? (
         <AdminMasterCalendarPage bundle={adminMasterCalendarBundle} />
+      ) : showAdminAuditLogPage ? (
+        <AdminAuditLogPage />
       ) : (
         <>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1084,6 +1094,159 @@ function AdminMasterCalendarPage({ bundle }: { bundle: any }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function AdminAuditLogPage() {
+  const [cursor, setCursor] = useState("0");
+  const [cursorHistory, setCursorHistory] = useState<string[]>([]);
+  const [draftActionFilter, setDraftActionFilter] = useState("");
+  const [draftEntityFilter, setDraftEntityFilter] = useState("");
+  const [appliedActionFilter, setAppliedActionFilter] = useState("");
+  const [appliedEntityFilter, setAppliedEntityFilter] = useState("");
+
+  const bundle = useQuery(api.functions.auditLog.getCurrentFiscalYearAuditLog, {
+    cursor,
+    limit: 25,
+    actionFilter: appliedActionFilter.trim() || undefined,
+    entityTypeFilter: appliedEntityFilter.trim() || undefined,
+  });
+
+  if (bundle === undefined) {
+    return (
+      <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
+        <p className="text-sm text-gray-600">Loading audit log...</p>
+      </div>
+    );
+  }
+
+  if (!bundle?.fiscalYear) {
+    return (
+      <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
+        <h3 className="text-lg font-semibold mb-2">Audit Log</h3>
+        <p className="text-sm text-gray-600">No active fiscal year found. Create/activate a fiscal year first.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm space-y-3">
+        <div>
+          <h3 className="text-lg font-semibold">Audit Log</h3>
+          <p className="text-sm text-gray-600">
+            {bundle.fiscalYear.label} ({bundle.fiscalYear.status}) - key events such as status transitions,
+            schedule submissions, and trade actions
+          </p>
+        </div>
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="text-sm">
+            <span className="block text-xs text-gray-600 mb-1">Action contains</span>
+            <input
+              value={draftActionFilter}
+              onChange={(e) => setDraftActionFilter(e.target.value)}
+              className="rounded border border-gray-300 px-3 py-2 text-sm"
+              placeholder="trade, submitted, status"
+            />
+          </label>
+          <label className="text-sm">
+            <span className="block text-xs text-gray-600 mb-1">Entity contains</span>
+            <input
+              value={draftEntityFilter}
+              onChange={(e) => setDraftEntityFilter(e.target.value)}
+              className="rounded border border-gray-300 px-3 py-2 text-sm"
+              placeholder="scheduleRequest"
+            />
+          </label>
+          <button
+            onClick={() => {
+              setAppliedActionFilter(draftActionFilter);
+              setAppliedEntityFilter(draftEntityFilter);
+              setCursor("0");
+              setCursorHistory([]);
+            }}
+            className="px-3 py-2 text-sm rounded bg-blue-600 text-white hover:bg-blue-700"
+          >
+            Apply Filters
+          </button>
+          <button
+            onClick={() => {
+              setDraftActionFilter("");
+              setDraftEntityFilter("");
+              setAppliedActionFilter("");
+              setAppliedEntityFilter("");
+              setCursor("0");
+              setCursorHistory([]);
+            }}
+            className="px-3 py-2 text-sm rounded bg-gray-100 text-gray-700 hover:bg-gray-200"
+          >
+            Clear
+          </button>
+        </div>
+      </div>
+
+      <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm space-y-3">
+        <div className="text-sm text-gray-600">Total matching entries: {bundle.totalCount}</div>
+        <div className="border border-gray-200 rounded-md overflow-auto max-h-[620px]">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 text-gray-700 sticky top-0">
+              <tr>
+                <th className="text-left px-3 py-2">Time</th>
+                <th className="text-left px-3 py-2">User</th>
+                <th className="text-left px-3 py-2">Action</th>
+                <th className="text-left px-3 py-2">Entity</th>
+                <th className="text-left px-3 py-2">Entity ID</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(bundle.items ?? []).length === 0 ? (
+                <tr>
+                  <td className="px-3 py-3 text-gray-500" colSpan={5}>
+                    No audit entries found for this filter.
+                  </td>
+                </tr>
+              ) : (
+                (bundle.items ?? []).map((item: any) => (
+                  <tr key={String(item._id)} className="border-t border-gray-100 align-top">
+                    <td className="px-3 py-2 whitespace-nowrap">{formatDateTime(item.timestamp)}</td>
+                    <td className="px-3 py-2">{item.userName}</td>
+                    <td className="px-3 py-2">{item.action}</td>
+                    <td className="px-3 py-2">{item.entityType}</td>
+                    <td className="px-3 py-2 font-mono text-xs text-gray-600">{item.entityId}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="flex items-center justify-end gap-2">
+          <button
+            onClick={() => {
+              if (cursorHistory.length === 0) return;
+              const previous = cursorHistory[cursorHistory.length - 1];
+              setCursorHistory((prev) => prev.slice(0, -1));
+              setCursor(previous);
+            }}
+            disabled={cursorHistory.length === 0}
+            className="px-3 py-2 text-sm rounded bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:opacity-50"
+          >
+            Previous
+          </button>
+          <button
+            onClick={() => {
+              if (!bundle.nextCursor) return;
+              setCursorHistory((prev) => [...prev, cursor]);
+              setCursor(bundle.nextCursor);
+            }}
+            disabled={!bundle.nextCursor}
+            className="px-3 py-2 text-sm rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            Next
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

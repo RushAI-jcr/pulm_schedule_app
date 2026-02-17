@@ -9,6 +9,7 @@
  */
 
 import type * as auth from "../auth.js";
+import type * as functions_auditLog from "../functions/auditLog.js";
 import type * as functions_cfteTargets from "../functions/cfteTargets.js";
 import type * as functions_clinicTypes from "../functions/clinicTypes.js";
 import type * as functions_fiscalYears from "../functions/fiscalYears.js";
@@ -19,6 +20,7 @@ import type * as functions_rotations from "../functions/rotations.js";
 import type * as functions_scheduleRequests from "../functions/scheduleRequests.js";
 import type * as functions_tradeRequests from "../functions/tradeRequests.js";
 import type * as http from "../http.js";
+import type * as lib_auditLog from "../lib/auditLog.js";
 import type * as lib_auth from "../lib/auth.js";
 import type * as lib_cfte from "../lib/cfte.js";
 import type * as lib_cfteTargets from "../lib/cfteTargets.js";
@@ -36,6 +38,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   auth: typeof auth;
+  "functions/auditLog": typeof functions_auditLog;
   "functions/cfteTargets": typeof functions_cfteTargets;
   "functions/clinicTypes": typeof functions_clinicTypes;
   "functions/fiscalYears": typeof functions_fiscalYears;
@@ -46,6 +49,7 @@ declare const fullApi: ApiFromModules<{
   "functions/scheduleRequests": typeof functions_scheduleRequests;
   "functions/tradeRequests": typeof functions_tradeRequests;
   http: typeof http;
+  "lib/auditLog": typeof lib_auditLog;
   "lib/auth": typeof lib_auth;
   "lib/cfte": typeof lib_cfte;
   "lib/cfteTargets": typeof lib_cfteTargets;

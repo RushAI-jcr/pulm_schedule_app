@@ -43,4 +43,7 @@ check convex/functions/physicianClinics.ts "await requireAdmin\(ctx\)" "physicia
 # Master calendar functions
 check convex/functions/masterCalendar.ts "await requireAdmin\(ctx\)" "master calendar admin guard"
 
+# Audit log functions
+check convex/functions/auditLog.ts "await requireAdmin\(ctx\)" "audit log admin guard"
+
 echo "Auth guard checks passed"
