@@ -91,6 +91,7 @@ export const getFiscalYears = query({
         v.literal("archived"),
       ),
       requestDeadline: v.optional(v.string()),
+      previousFiscalYearId: v.optional(v.id("fiscalYears")),
     }),
   ),
   handler: async (ctx) => {
@@ -117,6 +118,7 @@ export const getCurrentFiscalYear = query({
         v.literal("archived"),
       ),
       requestDeadline: v.optional(v.string()),
+      previousFiscalYearId: v.optional(v.id("fiscalYears")),
     }),
   ),
   handler: async (ctx) => {
@@ -368,6 +370,38 @@ export const updateFiscalYearStatus = mutation({
 
     await ctx.db.patch(fiscalYear._id, { status: args.status });
     return { message: `${fiscalYear.label} moved to ${args.status}` };
+  },
+});
+
+export const setPreviousFiscalYear = mutation({
+  args: {
+    fiscalYearId: v.id("fiscalYears"),
+    previousFiscalYearId: v.optional(v.id("fiscalYears")),
+  },
+  returns: v.object({ message: v.string() }),
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+
+    const fiscalYear = await ctx.db.get(args.fiscalYearId);
+    if (!fiscalYear) throw new Error("Fiscal year not found");
+
+    if (args.previousFiscalYearId) {
+      if (args.previousFiscalYearId === args.fiscalYearId) {
+        throw new Error("A fiscal year cannot reference itself as its prior year");
+      }
+      const priorFy = await ctx.db.get(args.previousFiscalYearId);
+      if (!priorFy) throw new Error("Previous fiscal year not found");
+    }
+
+    await ctx.db.patch(args.fiscalYearId, {
+      previousFiscalYearId: args.previousFiscalYearId,
+    });
+
+    return {
+      message: args.previousFiscalYearId
+        ? `Prior fiscal year linked for ${fiscalYear.label}`
+        : `Prior fiscal year cleared for ${fiscalYear.label}`,
+    };
   },
 });
 

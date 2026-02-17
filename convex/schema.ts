@@ -47,6 +47,7 @@ const applicationTables = {
       v.literal("archived")
     ),
     requestDeadline: v.optional(v.string()), // ISO datetime
+    previousFiscalYearId: v.optional(v.id("fiscalYears")), // Prior FY for holiday parity context
   })
     .index("by_status", ["status"])
     .index("by_label", ["label"]),
@@ -250,11 +251,50 @@ const applicationTables = {
     physicianId: v.optional(v.id("physicians")), // null = unassigned
     assignedBy: v.optional(v.id("physicians")), // admin who made the assignment
     assignedAt: v.optional(v.number()), // timestamp
+    assignmentSource: v.optional(v.union(
+      v.literal("auto"),    // placed by auto-fill algorithm
+      v.literal("manual"),  // placed by admin manually
+      v.literal("import")   // imported from spreadsheet
+    )),
   })
     .index("by_calendar", ["masterCalendarId"])
     .index("by_calendar_week", ["masterCalendarId", "weekId"])
     .index("by_calendar_physician", ["masterCalendarId", "physicianId"])
     .index("by_calendar_week_rotation", ["masterCalendarId", "weekId", "rotationId"]),
+
+  // ========================================
+  // AUTO-FILL CONFIGURATION (Admin-tunable algorithm weights)
+  // ========================================
+  autoFillConfig: defineTable({
+    fiscalYearId: v.id("fiscalYears"),
+    weightPreference: v.number(),      // default: 30
+    weightHolidayParity: v.number(),   // default: 25
+    weightWorkloadSpread: v.number(),  // default: 20
+    weightRotationVariety: v.number(), // default: 15
+    weightGapEnforcement: v.number(),  // default: 10
+    majorHolidayNames: v.array(v.string()), // e.g., ["Thanksgiving Day", "Christmas Day"]
+    minGapWeeksBetweenStints: v.number(),   // default: 2
+    updatedAt: v.number(),
+    updatedBy: v.optional(v.id("physicians")),
+  })
+    .index("by_fiscalYear", ["fiscalYearId"]),
+
+  // ========================================
+  // AUTO-FILL DECISION LOG (Transparency for admin review)
+  // ========================================
+  autoFillDecisionLog: defineTable({
+    masterCalendarId: v.id("masterCalendars"),
+    weekId: v.id("weeks"),
+    rotationId: v.id("rotations"),
+    selectedPhysicianId: v.id("physicians"),
+    score: v.number(),
+    scoreBreakdown: v.string(),         // JSON: { preference, holidayParity, workloadSpread, ... }
+    alternativesConsidered: v.number(), // how many candidates were eligible
+    passNumber: v.number(),             // which pass assigned this cell (1, 2, or 3)
+    createdAt: v.number(),
+  })
+    .index("by_calendar", ["masterCalendarId"])
+    .index("by_calendar_week", ["masterCalendarId", "weekId"]),
 
   // ========================================
   // AUDIT LOG
