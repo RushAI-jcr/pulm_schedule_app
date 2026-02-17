@@ -11,6 +11,7 @@
 import type * as auth from "../auth.js";
 import type * as functions_fiscalYears from "../functions/fiscalYears.js";
 import type * as functions_physicians from "../functions/physicians.js";
+import type * as functions_rotations from "../functions/rotations.js";
 import type * as functions_scheduleRequests from "../functions/scheduleRequests.js";
 import type * as functions_tradeRequests from "../functions/tradeRequests.js";
 import type * as http from "../http.js";
@@ -29,6 +30,7 @@ declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   "functions/fiscalYears": typeof functions_fiscalYears;
   "functions/physicians": typeof functions_physicians;
+  "functions/rotations": typeof functions_rotations;
   "functions/scheduleRequests": typeof functions_scheduleRequests;
   "functions/tradeRequests": typeof functions_tradeRequests;
   http: typeof http;

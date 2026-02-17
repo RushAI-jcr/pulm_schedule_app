@@ -67,6 +67,7 @@ function Content() {
 }
 
 function Dashboard() {
+  const [adminPage, setAdminPage] = useState<"overview" | "rotations">("overview");
   const myProfile = useQuery(api.functions.physicians.getMyProfile);
   const physicianCount = useQuery(api.functions.physicians.getPhysicianCount);
   const linkCurrentUser = useMutation(api.functions.physicians.linkCurrentUserToPhysicianByEmail);
@@ -103,6 +104,10 @@ function Dashboard() {
     api.functions.tradeRequests.getAdminTradeQueue,
     myProfile?.role === "admin" ? {} : "skip",
   );
+  const adminRotationsBundle = useQuery(
+    api.functions.rotations.getCurrentFiscalYearRotations,
+    myProfile?.role === "admin" ? {} : "skip",
+  );
 
   if (
     myProfile === undefined ||
@@ -114,6 +119,7 @@ function Dashboard() {
     currentWeekBundle === undefined ||
     tradeOptions === undefined ||
     myTrades === undefined ||
+    (myProfile?.role === "admin" && adminRotationsBundle === undefined) ||
     (myProfile?.role === "admin" && adminRequestBundle === undefined) ||
     (myProfile?.role === "admin" && adminTradeQueue === undefined)
   ) {
@@ -127,8 +133,31 @@ function Dashboard() {
     return <NoPhysicianProfile />;
   }
 
+  const showAdminRotationsPage = myProfile.role === "admin" && adminPage === "rotations";
+
   return (
     <div className="space-y-6">
+      {myProfile.role === "admin" ? (
+        <div className="bg-white border border-gray-200 rounded-lg p-2 inline-flex gap-2">
+          <button
+            className={`px-3 py-2 text-sm rounded ${adminPage === "overview" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}
+            onClick={() => setAdminPage("overview")}
+          >
+            Overview
+          </button>
+          <button
+            className={`px-3 py-2 text-sm rounded ${adminPage === "rotations" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}
+            onClick={() => setAdminPage("rotations")}
+          >
+            Rotations
+          </button>
+        </div>
+      ) : null}
+
+      {showAdminRotationsPage ? (
+        <AdminRotationsPage bundle={adminRotationsBundle} />
+      ) : (
+        <>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <MetricCard label="Physicians" value={String(physicians.length)} />
         <MetricCard label="Fiscal Years" value={String(fiscalYears.length)} />
@@ -156,6 +185,196 @@ function Dashboard() {
           {myProfile.role === "admin" ? <AdminRequestQueue adminRequestBundle={adminRequestBundle!} /> : null}
           {myProfile.role === "admin" ? <AdminTradeQueue trades={adminTradeQueue ?? []} /> : null}
           <AdminActions isAdmin={myProfile.role === "admin"} currentFY={currentFY} />
+        </div>
+      </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function AdminRotationsPage({ bundle }: { bundle: any }) {
+  const createRotation = useMutation(api.functions.rotations.createRotation);
+  const setRotationActive = useMutation(api.functions.rotations.setRotationActive);
+
+  const [name, setName] = useState("");
+  const [abbreviation, setAbbreviation] = useState("");
+  const [cftePerWeek, setCftePerWeek] = useState("0.02");
+  const [minStaff, setMinStaff] = useState("1");
+  const [maxConsecutiveWeeks, setMaxConsecutiveWeeks] = useState("2");
+  const [isSaving, setIsSaving] = useState(false);
+
+  if (!bundle?.fiscalYear) {
+    return (
+      <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
+        <h3 className="text-lg font-semibold mb-2">Rotations</h3>
+        <p className="text-sm text-gray-600">No active fiscal year found. Create/activate a fiscal year first.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm space-y-4">
+        <div>
+          <h3 className="text-lg font-semibold">Manage Rotations</h3>
+          <p className="text-sm text-gray-600">
+            {bundle.fiscalYear.label} ({bundle.fiscalYear.status})
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <label className="text-sm">
+            <span className="block text-xs text-gray-600 mb-1">Name</span>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+              placeholder="MICU 1"
+              disabled={isSaving}
+            />
+          </label>
+          <label className="text-sm">
+            <span className="block text-xs text-gray-600 mb-1">Abbreviation</span>
+            <input
+              value={abbreviation}
+              onChange={(e) => setAbbreviation(e.target.value)}
+              className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+              placeholder="MICU1"
+              disabled={isSaving}
+            />
+          </label>
+          <label className="text-sm">
+            <span className="block text-xs text-gray-600 mb-1">cFTE per week</span>
+            <input
+              type="number"
+              step="0.001"
+              value={cftePerWeek}
+              onChange={(e) => setCftePerWeek(e.target.value)}
+              className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+              disabled={isSaving}
+            />
+          </label>
+          <label className="text-sm">
+            <span className="block text-xs text-gray-600 mb-1">Min staff</span>
+            <input
+              type="number"
+              min="1"
+              value={minStaff}
+              onChange={(e) => setMinStaff(e.target.value)}
+              className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+              disabled={isSaving}
+            />
+          </label>
+          <label className="text-sm md:col-span-2">
+            <span className="block text-xs text-gray-600 mb-1">Max consecutive weeks</span>
+            <input
+              type="number"
+              min="1"
+              value={maxConsecutiveWeeks}
+              onChange={(e) => setMaxConsecutiveWeeks(e.target.value)}
+              className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+              disabled={isSaving}
+            />
+          </label>
+        </div>
+
+        <div className="flex justify-end">
+          <button
+            onClick={async () => {
+              if (!name.trim() || !abbreviation.trim()) {
+                toast.error("Name and abbreviation are required");
+                return;
+              }
+
+              setIsSaving(true);
+              try {
+                const result = await createRotation({
+                  name,
+                  abbreviation,
+                  cftePerWeek: Number(cftePerWeek),
+                  minStaff: Number(minStaff),
+                  maxConsecutiveWeeks: Number(maxConsecutiveWeeks),
+                });
+                toast.success(result.message);
+                setName("");
+                setAbbreviation("");
+                setCftePerWeek("0.02");
+                setMinStaff("1");
+                setMaxConsecutiveWeeks("2");
+              } catch (error) {
+                toast.error(error instanceof Error ? error.message : "Failed to create rotation");
+              } finally {
+                setIsSaving(false);
+              }
+            }}
+            disabled={isSaving}
+            className="px-3 py-2 text-sm rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            {isSaving ? "Saving..." : "Add Rotation"}
+          </button>
+        </div>
+      </div>
+
+      <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
+        <h4 className="font-semibold mb-3">Current Rotations ({bundle.rotations.length})</h4>
+        <div className="border border-gray-200 rounded-md overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 text-gray-600">
+              <tr>
+                <th className="text-left px-3 py-2">Order</th>
+                <th className="text-left px-3 py-2">Rotation</th>
+                <th className="text-left px-3 py-2">cFTE</th>
+                <th className="text-left px-3 py-2">Staffing</th>
+                <th className="text-left px-3 py-2">Status</th>
+                <th className="text-left px-3 py-2">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {bundle.rotations.length === 0 ? (
+                <tr>
+                  <td className="px-3 py-3 text-gray-500" colSpan={6}>
+                    No rotations configured.
+                  </td>
+                </tr>
+              ) : (
+                bundle.rotations.map((rotation: any) => (
+                  <tr key={String(rotation._id)} className="border-t border-gray-100">
+                    <td className="px-3 py-2">{rotation.sortOrder}</td>
+                    <td className="px-3 py-2">
+                      <div className="font-medium">{rotation.name}</div>
+                      <div className="text-xs text-gray-500">{rotation.abbreviation}</div>
+                    </td>
+                    <td className="px-3 py-2">{rotation.cftePerWeek}</td>
+                    <td className="px-3 py-2">
+                      min {rotation.minStaff}, max {rotation.maxConsecutiveWeeks} weeks
+                    </td>
+                    <td className="px-3 py-2">
+                      <StatusBadge status={rotation.isActive ? "active" : "inactive"} />
+                    </td>
+                    <td className="px-3 py-2">
+                      <button
+                        onClick={async () => {
+                          try {
+                            const result = await setRotationActive({
+                              rotationId: rotation._id,
+                              isActive: !rotation.isActive,
+                            });
+                            toast.success(result.message);
+                          } catch (error) {
+                            toast.error(error instanceof Error ? error.message : "Failed to update rotation");
+                          }
+                        }}
+                        className="px-2 py-1 text-xs rounded bg-gray-700 text-white hover:bg-gray-800"
+                      >
+                        {rotation.isActive ? "Deactivate" : "Activate"}
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
@@ -828,6 +1047,8 @@ function StatusBadge({ status }: { status: string }) {
     admin_approved: "bg-emerald-100 text-emerald-800",
     admin_denied: "bg-red-100 text-red-800",
     cancelled: "bg-gray-100 text-gray-700",
+    active: "bg-emerald-100 text-emerald-800",
+    inactive: "bg-gray-100 text-gray-700",
   };
 
   return (
