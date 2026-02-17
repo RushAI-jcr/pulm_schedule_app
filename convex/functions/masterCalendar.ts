@@ -1309,6 +1309,29 @@ export const assignCurrentFiscalYearDraftCell = mutation({
       throw new Error("Invalid physician selected");
     }
 
+    // Check physician active date range
+    if (args.physicianId && physician) {
+      if (physician.activeFromWeekId) {
+        const activeFromWeek = await ctx.db.get(physician.activeFromWeekId);
+        if (activeFromWeek && week.weekNumber < activeFromWeek.weekNumber) {
+          throw new Error(
+            `${physician.initials} is not active until week ${activeFromWeek.weekNumber}. ` +
+            `Cannot assign to week ${week.weekNumber}.`
+          );
+        }
+      }
+
+      if (physician.activeUntilWeekId) {
+        const activeUntilWeek = await ctx.db.get(physician.activeUntilWeekId);
+        if (activeUntilWeek && week.weekNumber > activeUntilWeek.weekNumber) {
+          throw new Error(
+            `${physician.initials} was deactivated after week ${activeUntilWeek.weekNumber}. ` +
+            `Cannot assign to week ${week.weekNumber}.`
+          );
+        }
+      }
+    }
+
     const draftCalendar = await getDraftCalendarForFiscalYear(ctx, fiscalYear._id);
     if (!draftCalendar) throw new Error("Create a draft calendar before assigning physicians");
 
@@ -1602,6 +1625,7 @@ export const autoAssignCurrentFiscalYearDraft = mutation({
       rotations: activeRotations.map((r) => ({
         _id: String(r._id),
         name: r.name,
+        abbreviation: r.abbreviation,
         cftePerWeek: r.cftePerWeek,
         minStaff: r.minStaff,
         maxConsecutiveWeeks: r.maxConsecutiveWeeks,
@@ -1610,7 +1634,10 @@ export const autoAssignCurrentFiscalYearDraft = mutation({
       })),
       physicians: activePhysicians.map((p) => ({
         _id: String(p._id),
+        initials: p.initials,
         isActive: p.isActive,
+        activeFromWeekId: p.activeFromWeekId ? String(p.activeFromWeekId) : undefined,
+        activeUntilWeekId: p.activeUntilWeekId ? String(p.activeUntilWeekId) : undefined,
       })),
       existingAssignments: assignments.map((a) => ({
         _id: String(a._id),

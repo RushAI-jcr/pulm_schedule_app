@@ -15,6 +15,7 @@ function makeRotations(count: number, cftePerWeek = 0.02) {
   return Array.from({ length: count }, (_, i) => ({
     _id: `r${i + 1}`,
     name: `Rotation ${i + 1}`,
+    abbreviation: `ROT${i + 1}`,
     cftePerWeek,
     minStaff: 1,
     maxConsecutiveWeeks: 4,
@@ -26,6 +27,7 @@ function makeRotations(count: number, cftePerWeek = 0.02) {
 function makePhysicians(count: number) {
   return Array.from({ length: count }, (_, i) => ({
     _id: `p${i + 1}`,
+    initials: `P${i + 1}`,
     isActive: true,
   }));
 }

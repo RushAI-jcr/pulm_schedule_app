@@ -26,6 +26,9 @@ const applicationTables = {
     email: v.string(),
     role: v.union(v.literal("physician"), v.literal("admin")),
     isActive: v.boolean(),
+    // Mid-year activation support
+    activeFromWeekId: v.optional(v.id("weeks")),  // Physician can only be assigned from this week onward
+    activeUntilWeekId: v.optional(v.id("weeks")), // Physician can only be assigned until this week
   })
     .index("by_userId", ["userId"])
     .index("by_initials", ["initials"])

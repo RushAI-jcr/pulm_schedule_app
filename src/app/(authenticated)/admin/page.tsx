@@ -8,6 +8,8 @@ import {
   FileText,
   Shield,
   ClipboardList,
+  TrendingUp,
+  Users,
 } from "lucide-react"
 import { api } from "../../../../convex/_generated/api"
 import { PageHeader } from "@/components/layout/page-header"
@@ -19,9 +21,11 @@ import Link from "next/link"
 
 const adminLinks = [
   { href: "/admin/calendar", label: "Master Calendar", icon: Calendar, description: "Build and publish the 52-week schedule" },
+  { href: "/admin/physicians", label: "Physicians", icon: Users, description: "Manage physician profiles and mid-year changes" },
   { href: "/admin/rotations", label: "Rotations", icon: FileText, description: "Manage rotations and clinic types" },
   { href: "/admin/cfte", label: "cFTE Targets", icon: BarChart3, description: "Set physician cFTE targets and clinic assignments" },
   { href: "/admin/requests", label: "Schedule Requests", icon: ClipboardList, description: "Review physician preferences and trade requests" },
+  { href: "/admin/reports", label: "Reports", icon: TrendingUp, description: "Scheduling analytics and compliance reports" },
   { href: "/admin/audit", label: "Audit Log", icon: Shield, description: "View system activity and changes" },
   { href: "/admin/settings", label: "Settings", icon: Settings, description: "Fiscal year lifecycle and data imports" },
 ]

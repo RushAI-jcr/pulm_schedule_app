@@ -505,52 +505,52 @@ const routeRoleRequirements: Array<{ prefix: string; role: AppRole }> = [
 
 ##### Backend changes (new file: `convex/functions/reports.ts`)
 
-- [ ] `getHolidayCoverageReport` query:
+- [x] `getHolidayCoverageReport` query:
   - Args: `{ fiscalYearIds: v.array(v.id("fiscalYears")) }`
   - Joins assignments + weeks + calendarEvents (federal_holiday category) + physicians
   - Returns: per-physician, per-holiday, per-year assignment data
   - Includes fairness score (round-robin equity calculation)
-- [ ] `getRotationDistributionReport` query:
+- [x] `getRotationDistributionReport` query:
   - Args: `{ fiscalYearId: v.id("fiscalYears") }`
   - Aggregates weeks per rotation per physician from assignments table
   - Returns: physician x rotation matrix with week counts
-- [ ] `getCfteComplianceReport` query:
+- [x] `getCfteComplianceReport` query:
   - Args: `{ fiscalYearId: v.id("fiscalYears") }`
   - Calculates actual cFTE from assignments (rotation.cftePerWeek * weeks assigned) + clinics (clinicType.cftePerHalfDay * halfDaysPerWeek)
   - Compares to physicianCfteTargets.targetCfte
   - Returns: per-physician actual vs target with variance
-- [ ] `getTradeActivityReport` query:
+- [x] `getTradeActivityReport` query:
   - Args: `{ fiscalYearId: v.id("fiscalYears") }`
   - Aggregates tradeRequests by status, physician, resolution time
   - Returns: volume, approval rates, avg resolution time, most active traders
-- [ ] `getYearOverYearReport` query:
+- [x] `getYearOverYearReport` query:
   - Args: `{ fiscalYearIds: v.array(v.id("fiscalYears")) }`
   - Multi-FY rotation distribution comparison
   - Returns: per-physician, per-rotation, per-FY week counts
 
 ##### Frontend changes
 
-- [ ] Create `src/components/reports/holiday-coverage-report.tsx`:
+- [x] Create `src/components/reports/holiday-coverage-report.tsx`:
   - Bar chart: holidays on X-axis, physicians color-coded
   - Multi-year toggle for fairness comparison
   - Equity indicator badges (fair/overloaded/underloaded)
   - Data table with sortable columns
-- [ ] Create `src/components/reports/rotation-distribution-report.tsx`:
+- [x] Create `src/components/reports/rotation-distribution-report.tsx`:
   - Heatmap: physicians (rows) x rotations (columns), intensity = weeks
   - Bar chart alternative view
   - Equity analysis sidebar
-- [ ] Create `src/components/reports/cfte-compliance-report.tsx`:
+- [x] Create `src/components/reports/cfte-compliance-report.tsx`:
   - Grouped bar chart: actual vs target per physician
   - Variance highlighting (green = within range, red = over/under)
   - Summary metrics: % compliant, avg variance
-- [ ] Create `src/components/reports/trade-activity-report.tsx`:
+- [x] Create `src/components/reports/trade-activity-report.tsx`:
   - Line chart: trade volume over time
   - Pie chart: approval/denial breakdown
   - Top traders table
-- [ ] Create `src/components/reports/yoy-trends-report.tsx`:
+- [x] Create `src/components/reports/yoy-trends-report.tsx`:
   - Multi-series line chart: rotation weeks per physician across FYs
   - Stacked bar chart: workload distribution comparison
-- [ ] Implement `src/app/(authenticated)/admin/reports/page.tsx`:
+- [x] Implement `src/app/(authenticated)/admin/reports/page.tsx`:
   - shadcn Tabs for 5 report types
   - FY selector (multi-select for cross-year reports)
   - Export to CSV button per report
@@ -562,11 +562,11 @@ const routeRoleRequirements: Array<{ prefix: string; role: AppRole }> = [
 - `src/app/(authenticated)/admin/reports/page.tsx` (replace placeholder)
 
 **Success criteria:**
-- [ ] All 5 report types render with real data
-- [ ] Charts use Rush brand colors (via CSS variables)
-- [ ] Multi-FY selection works for holiday coverage and YoY reports
-- [ ] Reports are printable
-- [ ] Export to CSV works
+- [x] All 5 report types render with real data
+- [x] Charts use Rush brand colors (via CSS variables)
+- [x] Multi-FY selection works for holiday coverage and YoY reports
+- [ ] Reports are printable (print stylesheet deferred)
+- [x] Export to CSV works
 
 ---
 

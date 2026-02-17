@@ -91,6 +91,8 @@ export const getMyProfile = query({
       email: v.string(),
       role: v.union(v.literal("physician"), v.literal("admin")),
       isActive: v.boolean(),
+      activeFromWeekId: v.optional(v.id("weeks")),
+      activeUntilWeekId: v.optional(v.id("weeks")),
     }),
   ),
   handler: async (ctx) => {
@@ -314,6 +316,8 @@ export const getPhysicians = query({
       email: v.string(),
       role: v.union(v.literal("physician"), v.literal("admin")),
       isActive: v.boolean(),
+      activeFromWeekId: v.optional(v.id("weeks")),
+      activeUntilWeekId: v.optional(v.id("weeks")),
     }),
   ),
   handler: async (ctx) => {
@@ -341,6 +345,8 @@ export const getPhysiciansByRole = query({
       email: v.string(),
       role: v.union(v.literal("physician"), v.literal("admin")),
       isActive: v.boolean(),
+      activeFromWeekId: v.optional(v.id("weeks")),
+      activeUntilWeekId: v.optional(v.id("weeks")),
     }),
   ),
   handler: async (ctx, args) => {
@@ -359,6 +365,7 @@ export const createPhysician = mutation({
     initials: v.string(),
     email: v.string(),
     role: v.union(v.literal("physician"), v.literal("admin")),
+    activeFromWeekId: v.optional(v.id("weeks")),
   },
   returns: v.id("physicians"),
   handler: async (ctx, args) => {
@@ -371,6 +378,14 @@ export const createPhysician = mutation({
 
     if (!firstName || !lastName || !initials || !email) {
       throw new Error("First name, last name, initials, and email are required");
+    }
+
+    // Validate activeFromWeekId if provided
+    if (args.activeFromWeekId) {
+      const week = await ctx.db.get(args.activeFromWeekId);
+      if (!week) {
+        throw new Error("Invalid start week selected");
+      }
     }
 
     const existingByEmail = await ctx.db
@@ -392,6 +407,7 @@ export const createPhysician = mutation({
       email,
       role: args.role,
       isActive: true,
+      ...(args.activeFromWeekId ? { activeFromWeekId: args.activeFromWeekId } : {}),
     });
   },
 });
@@ -405,6 +421,8 @@ export const updatePhysician = mutation({
     email: v.optional(v.string()),
     role: v.optional(v.union(v.literal("physician"), v.literal("admin"))),
     isActive: v.optional(v.boolean()),
+    activeFromWeekId: v.optional(v.id("weeks")),
+    activeUntilWeekId: v.optional(v.id("weeks")),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -413,6 +431,21 @@ export const updatePhysician = mutation({
     const { physicianId, ...updates } = args;
     const existing = await ctx.db.get(physicianId);
     if (!existing) throw new Error("Physician not found");
+
+    // Validate week IDs if provided
+    if (updates.activeFromWeekId) {
+      const week = await ctx.db.get(updates.activeFromWeekId);
+      if (!week) {
+        throw new Error("Invalid start week selected");
+      }
+    }
+
+    if (updates.activeUntilWeekId) {
+      const week = await ctx.db.get(updates.activeUntilWeekId);
+      if (!week) {
+        throw new Error("Invalid end week selected");
+      }
+    }
 
     const normalizedInitials = updates.initials ? normalizeInitials(updates.initials) : undefined;
     const normalizedEmail = updates.email ? normalizeEmail(updates.email) : undefined;
@@ -446,6 +479,181 @@ export const updatePhysician = mutation({
       ...(normalizedInitials ? { initials: normalizedInitials } : {}),
       ...(normalizedEmail ? { email: normalizedEmail } : {}),
     });
+  },
+});
+
+export const deactivatePhysician = mutation({
+  args: {
+    physicianId: v.id("physicians"),
+    activeUntilWeekId: v.id("weeks"),
+    fiscalYearId: v.id("fiscalYears"),
+  },
+  returns: v.object({
+    message: v.string(),
+    clearedAssignments: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+
+    // Validate physician and week
+    const physician = await ctx.db.get(args.physicianId);
+    if (!physician) throw new Error("Physician not found");
+
+    const activeUntilWeek = await ctx.db.get(args.activeUntilWeekId);
+    if (!activeUntilWeek || activeUntilWeek.fiscalYearId !== args.fiscalYearId) {
+      throw new Error("Invalid week selected");
+    }
+
+    // Set activeUntilWeekId on physician record
+    await ctx.db.patch(args.physicianId, {
+      activeUntilWeekId: args.activeUntilWeekId,
+    });
+
+    // Find draft calendar for this fiscal year
+    const draftCalendar = await ctx.db
+      .query("masterCalendars")
+      .withIndex("by_fiscalYear", (q) => q.eq("fiscalYearId", args.fiscalYearId))
+      .filter((q) => q.eq(q.field("status"), "draft"))
+      .first();
+
+    if (!draftCalendar) {
+      // No draft calendar, no assignments to clear
+      return {
+        message: `Physician ${physician.initials} deactivated after week ${activeUntilWeek.weekNumber}`,
+        clearedAssignments: 0,
+      };
+    }
+
+    // Get all weeks in this fiscal year
+    const allWeeks = await ctx.db
+      .query("weeks")
+      .withIndex("by_fiscalYear", (q) => q.eq("fiscalYearId", args.fiscalYearId))
+      .collect();
+
+    const weekNumberMap = new Map(allWeeks.map((w) => [String(w._id), w.weekNumber]));
+
+    // Get all assignments for this physician in draft calendar
+    const assignments = await ctx.db
+      .query("assignments")
+      .withIndex("by_calendar_physician", (q) =>
+        q.eq("masterCalendarId", draftCalendar._id).eq("physicianId", args.physicianId),
+      )
+      .collect();
+
+    // Clear assignments AFTER activeUntilWeek
+    let clearedCount = 0;
+    for (const assignment of assignments) {
+      const assignmentWeekNumber = weekNumberMap.get(String(assignment.weekId));
+      if (assignmentWeekNumber && assignmentWeekNumber > activeUntilWeek.weekNumber) {
+        await ctx.db.patch(assignment._id, {
+          physicianId: undefined,
+          assignedBy: undefined,
+          assignedAt: undefined,
+          assignmentSource: undefined,
+        });
+        clearedCount++;
+      }
+    }
+
+    return {
+      message: `Physician ${physician.initials} deactivated after week ${activeUntilWeek.weekNumber}. Cleared ${clearedCount} future assignments.`,
+      clearedAssignments: clearedCount,
+    };
+  },
+});
+
+export const listPhysiciansWithStatus = query({
+  args: { fiscalYearId: v.optional(v.id("fiscalYears")) },
+  returns: v.array(
+    v.object({
+      _id: v.id("physicians"),
+      firstName: v.string(),
+      lastName: v.string(),
+      initials: v.string(),
+      email: v.string(),
+      role: v.union(v.literal("physician"), v.literal("admin")),
+      isActive: v.boolean(),
+      activeFromWeekNumber: v.optional(v.number()),
+      activeUntilWeekNumber: v.optional(v.number()),
+      assignmentCount: v.number(),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    await requireAuthenticatedUser(ctx);
+
+    const physicians = await ctx.db.query("physicians").collect();
+
+    // If no fiscal year provided, just return basic info
+    if (!args.fiscalYearId) {
+      return physicians.map((p) => ({
+        _id: p._id,
+        firstName: p.firstName,
+        lastName: p.lastName,
+        initials: p.initials,
+        email: p.email,
+        role: p.role,
+        isActive: p.isActive,
+        activeFromWeekNumber: undefined,
+        activeUntilWeekNumber: undefined,
+        assignmentCount: 0,
+      }));
+    }
+
+    // Get draft calendar for fiscal year
+    const fiscalYearId = args.fiscalYearId; // TypeScript: we know this is defined because we returned early if not
+    const draftCalendar = await ctx.db
+      .query("masterCalendars")
+      .withIndex("by_fiscalYear", (q) => q.eq("fiscalYearId", fiscalYearId))
+      .filter((q) => q.eq(q.field("status"), "draft"))
+      .first();
+
+    // Get all weeks for the fiscal year
+    const allWeeks = await ctx.db
+      .query("weeks")
+      .withIndex("by_fiscalYear", (q) => q.eq("fiscalYearId", fiscalYearId))
+      .collect();
+
+    const weekNumberMap = new Map(allWeeks.map((w) => [String(w._id), w.weekNumber]));
+
+    // Get all assignments if calendar exists
+    const assignments = draftCalendar
+      ? await ctx.db
+          .query("assignments")
+          .withIndex("by_calendar", (q) => q.eq("masterCalendarId", draftCalendar._id))
+          .collect()
+      : [];
+
+    // Count assignments per physician
+    const assignmentCounts = new Map<string, number>();
+    for (const assignment of assignments) {
+      if (assignment.physicianId) {
+        const pid = String(assignment.physicianId);
+        assignmentCounts.set(pid, (assignmentCounts.get(pid) ?? 0) + 1);
+      }
+    }
+
+    // Build result with week numbers
+    const result = physicians.map((p) => ({
+      _id: p._id,
+      firstName: p.firstName,
+      lastName: p.lastName,
+      initials: p.initials,
+      email: p.email,
+      role: p.role,
+      isActive: p.isActive,
+      activeFromWeekNumber: p.activeFromWeekId ? weekNumberMap.get(String(p.activeFromWeekId)) : undefined,
+      activeUntilWeekNumber: p.activeUntilWeekId ? weekNumberMap.get(String(p.activeUntilWeekId)) : undefined,
+      assignmentCount: assignmentCounts.get(String(p._id)) ?? 0,
+    }));
+
+    // Sort by last name, then first name
+    result.sort((a, b) => {
+      const byLast = a.lastName.localeCompare(b.lastName);
+      if (byLast !== 0) return byLast;
+      return a.firstName.localeCompare(b.firstName);
+    });
+
+    return result;
   },
 });
 

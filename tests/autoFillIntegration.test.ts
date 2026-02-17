@@ -22,6 +22,7 @@ function makeRealisticRotations(): RotationDoc[] {
     {
       _id: "r-pulm",
       name: "Pulmonary Consults",
+      abbreviation: "PULM",
       cftePerWeek: 0.03,
       minStaff: 1,
       maxConsecutiveWeeks: 4,
@@ -31,6 +32,7 @@ function makeRealisticRotations(): RotationDoc[] {
     {
       _id: "r-micu1",
       name: "MICU 1",
+      abbreviation: "MICU 1",
       cftePerWeek: 0.04,
       minStaff: 1,
       maxConsecutiveWeeks: 2,
@@ -40,6 +42,7 @@ function makeRealisticRotations(): RotationDoc[] {
     {
       _id: "r-micu2",
       name: "MICU 2",
+      abbreviation: "MICU 2",
       cftePerWeek: 0.04,
       minStaff: 1,
       maxConsecutiveWeeks: 2,
@@ -49,6 +52,7 @@ function makeRealisticRotations(): RotationDoc[] {
     {
       _id: "r-ccu",
       name: "CCU",
+      abbreviation: "CCU",
       cftePerWeek: 0.035,
       minStaff: 1,
       maxConsecutiveWeeks: 3,
@@ -58,6 +62,7 @@ function makeRealisticRotations(): RotationDoc[] {
     {
       _id: "r-consults",
       name: "General Consults",
+      abbreviation: "CONSULTS",
       cftePerWeek: 0.025,
       minStaff: 1,
       maxConsecutiveWeeks: 4,
@@ -67,6 +72,7 @@ function makeRealisticRotations(): RotationDoc[] {
     {
       _id: "r-va",
       name: "VA Service",
+      abbreviation: "VA",
       cftePerWeek: 0.03,
       minStaff: 1,
       maxConsecutiveWeeks: 4,
@@ -76,6 +82,7 @@ function makeRealisticRotations(): RotationDoc[] {
     {
       _id: "r-night",
       name: "Night Float",
+      abbreviation: "NIGHT",
       cftePerWeek: 0.05,
       minStaff: 1,
       maxConsecutiveWeeks: 2,
@@ -85,6 +92,7 @@ function makeRealisticRotations(): RotationDoc[] {
     {
       _id: "r-bronch",
       name: "Bronchoscopy",
+      abbreviation: "BRONCH",
       cftePerWeek: 0.02,
       minStaff: 1,
       maxConsecutiveWeeks: 3,
@@ -101,6 +109,7 @@ function makeRealisticPhysicians(): PhysicianDoc[] {
   for (let i = 1; i <= 8; i++) {
     physicians.push({
       _id: `p-std${i}`,
+      initials: `STD${i}`,
       isActive: true,
     });
   }
@@ -109,6 +118,7 @@ function makeRealisticPhysicians(): PhysicianDoc[] {
   for (let i = 1; i <= 4; i++) {
     physicians.push({
       _id: `p-part${i}`,
+      initials: `PT${i}`,
       isActive: true,
     });
   }
@@ -117,6 +127,7 @@ function makeRealisticPhysicians(): PhysicianDoc[] {
   for (let i = 1; i <= 2; i++) {
     physicians.push({
       _id: `p-high${i}`,
+      initials: `HV${i}`,
       isActive: true,
     });
   }
@@ -124,6 +135,7 @@ function makeRealisticPhysicians(): PhysicianDoc[] {
   // 1 light-duty physician (0.20 cFTE target)
   physicians.push({
     _id: "p-light1",
+    initials: "LD1",
     isActive: true,
   });
 
