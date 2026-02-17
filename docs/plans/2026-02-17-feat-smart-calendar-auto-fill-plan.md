@@ -348,7 +348,7 @@ export async function runAutoFill(params: {
 
 ##### Backend changes
 
-- [ ] Implement holiday parity logic in `convex/lib/autoFillHolidays.ts`:
+- [x] Implement holiday parity logic in `convex/lib/autoFillHolidays.ts`:
 
 ```typescript
 // Determines which physician should work each major holiday this year
@@ -365,23 +365,23 @@ export function computeHolidayParityScores(params: {
   - If physician worked neither: neutral (0)
   - If no prior year data: all physicians start at 0
 
-- [ ] Implement workload spreading in `convex/lib/autoFillScorer.ts`:
+- [x] Implement workload spreading in `convex/lib/autoFillScorer.ts`:
   - Calculate ideal weeks per physician: `totalRotationWeeks / numPhysicians`
   - Score bonus/penalty based on how far below/above ideal a physician is
   - Factor in cFTE targets (physician with 0.8 cFTE target should have more weeks than 0.4 target)
   - Weighted ideal: `idealWeeks = (targetCfte / avgTargetCfte) * avgWeeksPerPhysician`
 
-- [ ] Implement rotation variety scoring in `convex/lib/autoFillScorer.ts`:
+- [x] Implement rotation variety scoring in `convex/lib/autoFillScorer.ts`:
   - Track how many weeks of each rotation each physician has been assigned
   - Bonus for rotations the physician hasn't done yet this FY
   - Penalty for over-concentration on one rotation
 
-- [ ] Implement gap enforcement in `convex/lib/autoFillScorer.ts`:
+- [x] Implement gap enforcement in `convex/lib/autoFillScorer.ts`:
   - Track last week number each physician was assigned to each rotation
   - Bonus for larger gaps (e.g., 4+ weeks since last MICU stint)
   - Penalty for gaps below `minGapWeeksBetweenStints`
 
-- [ ] Add `getPriorYearHolidaySummary` query to `convex/functions/masterCalendar.ts`:
+- [x] Add `getPriorYearHolidaySummary` query to `convex/functions/masterCalendar.ts`:
   - Admin can view who worked each major holiday last year
   - Used for manual verification and context
 
@@ -405,7 +405,7 @@ export function computeHolidayParityScores(params: {
 
 ##### Frontend changes
 
-- [ ] Create `src/components/admin/auto-fill-config-panel.tsx`:
+- [x] Create `src/components/admin/auto-fill-config-panel.tsx`:
   - 5 weight sliders (preference, holiday parity, workload spread, rotation variety, gap enforcement)
   - Sliders must sum to 100 (or auto-normalize)
   - Major holiday name chips (add/remove)
@@ -414,20 +414,20 @@ export function computeHolidayParityScores(params: {
   - "Reset to Defaults" button
   - Persists via `upsertAutoFillConfig` mutation
 
-- [ ] Create `src/components/admin/auto-fill-metrics-card.tsx`:
+- [x] Create `src/components/admin/auto-fill-metrics-card.tsx`:
   - Shows after auto-fill runs
   - Cards: Filled/Unfilled cells, Avg Score, Holiday Parity Score, cFTE Variance, Preference Satisfaction %
   - Color-coded (green=good, amber=moderate, red=poor)
   - "View Details" expands to full metrics breakdown
 
-- [ ] Create `src/components/admin/auto-fill-decision-log.tsx`:
+- [x] Create `src/components/admin/auto-fill-decision-log.tsx`:
   - Table: Week | Rotation | Assigned To | Score | Pass | Alternatives
   - Click row to see full score breakdown (preference, parity, spread, variety, gap)
   - Filter by: physician, rotation, pass number, score range
   - Sort by: week number, score (asc/desc), rotation
   - Helps admin understand WHY each physician was selected
 
-- [ ] Update `src/app/(authenticated)/admin/calendar/page.tsx`:
+- [x] Update `src/app/(authenticated)/admin/calendar/page.tsx`:
   - Add "Auto-Fill Settings" button that opens config panel (Sheet or Dialog)
   - After running auto-fill, show metrics card inline
   - Add "View Decision Log" button that opens decision log (Sheet)
@@ -436,7 +436,7 @@ export function computeHolidayParityScores(params: {
     - Cells manually placed: no indicator (or lock icon)
     - Holiday weeks: star/calendar icon on the week row header
 
-- [ ] Create `src/components/admin/prior-year-holiday-summary.tsx`:
+- [x] Create `src/components/admin/prior-year-holiday-summary.tsx`:
   - Shows who worked each major holiday last year
   - Displayed in the config panel for context
   - Read-only, pulls from published prior FY calendar
@@ -466,13 +466,13 @@ export function computeHolidayParityScores(params: {
 
 ##### Test files
 
-- [ ] Create `tests/autoFillScorer.test.ts`:
+- [x] Create `tests/autoFillScorer.test.ts`:
   - Test each scoring dimension independently
   - Test weight normalization
   - Test edge cases: no prior year data, single physician, all red weeks
   - Test holiday parity scoring with known prior-year data
 
-- [ ] Create `tests/autoFillSolver.test.ts`:
+- [x] Create `tests/autoFillSolver.test.ts`:
   - Test Pass 1: basic fill with scored selection
   - Test Pass 2: relaxed fill catches Pass 1 gaps
   - Test Pass 3: swap optimization improves global score
@@ -481,7 +481,7 @@ export function computeHolidayParityScores(params: {
   - Test deterministic results (same seed = same output)
   - Test edge cases: more rotations than physicians, all weeks red, no cFTE headroom
 
-- [ ] Create `tests/autoFillHolidays.test.ts`:
+- [x] Create `tests/autoFillHolidays.test.ts`:
   - Test holiday week identification from calendarEvents
   - Test prior-year loading
   - Test parity score computation

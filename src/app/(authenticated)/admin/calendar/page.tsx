@@ -7,7 +7,9 @@ import {
   Plus,
   Wand2,
   Upload,
-  Check,
+  Settings2,
+  FileText,
+  Undo2,
   AlertTriangle,
   Loader2,
 } from "lucide-react"
@@ -16,16 +18,7 @@ import type { Id } from "../../../../../convex/_generated/dataModel"
 import { PageHeader } from "@/components/layout/page-header"
 import { EmptyState } from "@/components/shared/empty-state"
 import { PageSkeleton } from "@/components/shared/loading-skeleton"
-import { StatusBadge } from "@/components/shared/status-badge"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import {
   Dialog,
   DialogContent,
@@ -36,19 +29,38 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
+import { AutoFillConfigPanel } from "@/components/admin/auto-fill-config-panel"
+import { AutoFillMetricsCard } from "@/components/admin/auto-fill-metrics-card"
+import { AutoFillDecisionLog } from "@/components/admin/auto-fill-decision-log"
+
+interface AutoFillMetrics {
+  totalCells: number
+  filledCells: number
+  unfilledCells: number
+  avgScore: number
+  holidayParityScore: number
+  cfteVariance: number
+  preferencesSatisfied: number
+  workloadStdDev: number
+}
 
 export default function MasterCalendarPage() {
   const data = useQuery(api.functions.masterCalendar.getCurrentFiscalYearMasterCalendarDraft)
   const createDraft = useMutation(api.functions.masterCalendar.createCurrentFiscalYearMasterCalendarDraft)
   const assignCell = useMutation(api.functions.masterCalendar.assignCurrentFiscalYearDraftCell)
   const autoAssign = useMutation(api.functions.masterCalendar.autoAssignCurrentFiscalYearDraft)
+  const clearAutoFilled = useMutation(api.functions.masterCalendar.clearAutoFilledAssignments)
   const publishDraft = useMutation(api.functions.masterCalendar.publishCurrentFiscalYearMasterCalendarDraft)
 
   const [isCreating, setIsCreating] = useState(false)
   const [isAutoAssigning, setIsAutoAssigning] = useState(false)
+  const [isClearing, setIsClearing] = useState(false)
   const [publishDialogOpen, setPublishDialogOpen] = useState(false)
   const [isPublishing, setIsPublishing] = useState(false)
+  const [configOpen, setConfigOpen] = useState(false)
+  const [decisionLogOpen, setDecisionLogOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [lastMetrics, setLastMetrics] = useState<AutoFillMetrics | null>(null)
 
   if (data === undefined) {
     return (
@@ -89,12 +101,29 @@ export default function MasterCalendarPage() {
   const handleAutoAssign = async () => {
     setIsAutoAssigning(true)
     setError(null)
+    setLastMetrics(null)
     try {
-      await autoAssign({})
+      const result = await autoAssign({})
+      if (result.metrics) {
+        setLastMetrics(result.metrics as AutoFillMetrics)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Auto-assign failed")
     } finally {
       setIsAutoAssigning(false)
+    }
+  }
+
+  const handleClearAutoFilled = async () => {
+    setIsClearing(true)
+    setError(null)
+    try {
+      await clearAutoFilled({})
+      setLastMetrics(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to clear auto-filled assignments")
+    } finally {
+      setIsClearing(false)
     }
   }
 
@@ -151,10 +180,23 @@ export default function MasterCalendarPage() {
             )}
             {hasDraft && isDraft && (
               <>
+                <Button size="sm" variant="ghost" onClick={() => setConfigOpen(true)}>
+                  <Settings2 className="mr-1 h-4 w-4" />
+                  Settings
+                </Button>
                 <Button size="sm" variant="outline" onClick={handleAutoAssign} disabled={isAutoAssigning}>
                   {isAutoAssigning && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
                   <Wand2 className="mr-1 h-4 w-4" />
-                  Auto-Assign
+                  Auto-Fill
+                </Button>
+                <Button size="sm" variant="ghost" onClick={handleClearAutoFilled} disabled={isClearing}>
+                  {isClearing && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+                  <Undo2 className="mr-1 h-4 w-4" />
+                  Undo Auto
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setDecisionLogOpen(true)}>
+                  <FileText className="mr-1 h-4 w-4" />
+                  Log
                 </Button>
                 <Dialog open={publishDialogOpen} onOpenChange={setPublishDialogOpen}>
                   <DialogTrigger asChild>
@@ -190,6 +232,11 @@ export default function MasterCalendarPage() {
             <AlertTriangle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
             <span className="text-xs text-destructive">{error}</span>
           </div>
+        )}
+
+        {/* Auto-Fill Metrics (shown after auto-fill runs) */}
+        {lastMetrics && (
+          <AutoFillMetricsCard metrics={lastMetrics} />
         )}
 
         {!hasDraft ? (
@@ -304,7 +351,7 @@ export default function MasterCalendarPage() {
                             <option value="">—</option>
                             {data.physicians.map((p) => {
                               const avail = availabilityMap.get(`${String(p._id)}:${String(weekRow.weekId)}`)
-                              const prefix = avail === "red" ? "🔴 " : avail === "yellow" ? "🟡 " : ""
+                              const prefix = avail === "red" ? "\ud83d\udd34 " : avail === "yellow" ? "\ud83d\udfe1 " : ""
                               return (
                                 <option key={String(p._id)} value={String(p._id)}>
                                   {prefix}{p.initials}
@@ -322,6 +369,25 @@ export default function MasterCalendarPage() {
           </>
         )}
       </div>
+
+      {/* Auto-Fill Settings Sheet */}
+      {data.fiscalYear && (
+        <AutoFillConfigPanel
+          open={configOpen}
+          onOpenChange={setConfigOpen}
+          fiscalYearId={data.fiscalYear._id}
+        />
+      )}
+
+      {/* Decision Log Sheet */}
+      <AutoFillDecisionLog
+        open={decisionLogOpen}
+        onOpenChange={setDecisionLogOpen}
+        calendarId={data.calendar?._id}
+        weeks={data.weeks.map((w) => ({ _id: w._id, weekNumber: w.weekNumber }))}
+        rotations={data.rotations.map((r) => ({ _id: r._id, name: r.name, abbreviation: r.abbreviation }))}
+        physicians={data.physicians.map((p) => ({ _id: p._id, initials: p.initials, lastName: p.fullName.split(" ").pop() ?? "" }))}
+      />
     </>
   )
 }

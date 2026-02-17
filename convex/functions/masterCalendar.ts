@@ -1443,6 +1443,16 @@ export const autoAssignCurrentFiscalYearDraft = mutation({
     message: v.string(),
     assignedCount: v.number(),
     remainingUnstaffedCount: v.number(),
+    metrics: v.object({
+      totalCells: v.number(),
+      filledCells: v.number(),
+      unfilledCells: v.number(),
+      avgScore: v.number(),
+      holidayParityScore: v.number(),
+      cfteVariance: v.number(),
+      preferencesSatisfied: v.number(),
+      workloadStdDev: v.number(),
+    }),
   }),
   handler: async (ctx) => {
     const { admin, fiscalYear } = await getAdminAndCurrentFiscalYear(ctx);
@@ -1475,6 +1485,16 @@ export const autoAssignCurrentFiscalYearDraft = mutation({
         message: "No eligible weeks, rotations, or physicians for auto-assignment",
         assignedCount: 0,
         remainingUnstaffedCount: 0,
+        metrics: {
+          totalCells: 0,
+          filledCells: 0,
+          unfilledCells: 0,
+          avgScore: 0,
+          holidayParityScore: 0,
+          cfteVariance: 0,
+          preferencesSatisfied: 0,
+          workloadStdDev: 0,
+        },
       };
     }
 
@@ -1645,10 +1665,20 @@ export const autoAssignCurrentFiscalYearDraft = mutation({
     return {
       message:
         assignedCount > 0
-          ? `Auto-fill complete: filled ${assignedCount} slot(s) (avg score: ${result.metrics.avgScore}, parity: ${result.metrics.holidayParityScore})`
+          ? `Auto-fill complete: filled ${assignedCount} slot(s) (avg score: ${result.metrics.avgScore.toFixed(1)}, parity: ${result.metrics.holidayParityScore.toFixed(0)})`
           : "Auto-fill complete: no eligible assignments found",
       assignedCount,
       remainingUnstaffedCount: result.unfilled.length,
+      metrics: {
+        totalCells: result.metrics.totalCells,
+        filledCells: result.metrics.filledCells,
+        unfilledCells: result.metrics.unfilledCells,
+        avgScore: result.metrics.avgScore,
+        holidayParityScore: result.metrics.holidayParityScore,
+        cfteVariance: result.metrics.cfteVariance,
+        preferencesSatisfied: result.metrics.preferencesSatisfied,
+        workloadStdDev: result.metrics.workloadStdDev,
+      },
     };
   },
 });
@@ -1700,6 +1730,161 @@ export const clearAutoFilledAssignments = mutation({
         : "No auto-filled assignments to clear",
       clearedCount,
     };
+  },
+});
+
+/**
+ * Returns a summary of which physicians worked each major holiday in the
+ * prior fiscal year's published calendar.  Used by the admin UI to provide
+ * context for holiday parity decisions.
+ */
+export const getPriorYearHolidaySummary = query({
+  args: {},
+  returns: v.union(
+    v.object({
+      available: v.literal(true),
+      priorFiscalYearLabel: v.string(),
+      holidays: v.array(
+        v.object({
+          holidayName: v.string(),
+          physicians: v.array(
+            v.object({
+              physicianId: v.id("physicians"),
+              firstName: v.string(),
+              lastName: v.string(),
+              initials: v.string(),
+            }),
+          ),
+        }),
+      ),
+    }),
+    v.object({
+      available: v.literal(false),
+      reason: v.string(),
+    }),
+  ),
+  handler: async (ctx) => {
+    await requireAuthenticatedUser(ctx);
+    const fiscalYear = await getSingleActiveFiscalYear(ctx);
+    if (!fiscalYear) {
+      return { available: false as const, reason: "No active fiscal year" };
+    }
+
+    if (!fiscalYear.previousFiscalYearId) {
+      return { available: false as const, reason: "No prior fiscal year linked" };
+    }
+
+    const priorFY = await ctx.db.get(fiscalYear.previousFiscalYearId);
+    if (!priorFY) {
+      return { available: false as const, reason: "Prior fiscal year not found" };
+    }
+
+    // Find published calendar for prior FY
+    const priorCalendars = await ctx.db
+      .query("masterCalendars")
+      .withIndex("by_fiscalYear", (q) => q.eq("fiscalYearId", priorFY._id))
+      .collect();
+    const publishedPrior = priorCalendars.find((c) => c.status === "published");
+    if (!publishedPrior) {
+      return { available: false as const, reason: "No published calendar for prior fiscal year" };
+    }
+
+    // Load auto-fill config (or defaults) for major holiday names
+    const config = await ctx.db
+      .query("autoFillConfig")
+      .withIndex("by_fiscalYear", (q) => q.eq("fiscalYearId", fiscalYear._id))
+      .unique();
+    const majorHolidayNames = config?.majorHolidayNames ?? DEFAULT_AUTO_FILL_CONFIG.majorHolidayNames;
+
+    // Load prior FY calendar events and assignments
+    const priorEvents = await ctx.db
+      .query("calendarEvents")
+      .withIndex("by_fiscalYear_approved", (q) =>
+        q.eq("fiscalYearId", priorFY._id).eq("isApproved", true),
+      )
+      .collect();
+    const priorHolidayWeeks = identifyHolidayWeeks(priorEvents, majorHolidayNames);
+
+    const priorAssignments = await ctx.db
+      .query("assignments")
+      .withIndex("by_calendar", (q) => q.eq("masterCalendarId", publishedPrior._id))
+      .collect();
+
+    const priorHolidayMap = buildPriorYearHolidayMap(
+      priorAssignments.map((a) => ({
+        weekId: a.weekId as string,
+        physicianId: a.physicianId as string | null,
+      })),
+      priorHolidayWeeks,
+    );
+
+    // Resolve physician details
+    const holidays: Array<{
+      holidayName: string;
+      physicians: Array<{
+        physicianId: Id<"physicians">;
+        firstName: string;
+        lastName: string;
+        initials: string;
+      }>;
+    }> = [];
+
+    for (const holidayName of majorHolidayNames) {
+      const pids = priorHolidayMap.get(holidayName.toLowerCase()) ?? [];
+      const physicians: typeof holidays[number]["physicians"] = [];
+
+      for (const pid of pids) {
+        const doc = await ctx.db.get(pid as Id<"physicians">);
+        if (doc) {
+          physicians.push({
+            physicianId: doc._id,
+            firstName: doc.firstName,
+            lastName: doc.lastName,
+            initials: doc.initials,
+          });
+        }
+      }
+
+      holidays.push({ holidayName, physicians });
+    }
+
+    return {
+      available: true as const,
+      priorFiscalYearLabel: priorFY.label,
+      holidays,
+    };
+  },
+});
+
+/**
+ * Returns decision log entries for a given master calendar.
+ * Used by the admin UI to explain why each assignment was made.
+ */
+export const getAutoFillDecisionLog = query({
+  args: {
+    masterCalendarId: v.id("masterCalendars"),
+  },
+  returns: v.array(
+    v.object({
+      _id: v.id("autoFillDecisionLog"),
+      _creationTime: v.number(),
+      masterCalendarId: v.id("masterCalendars"),
+      weekId: v.id("weeks"),
+      rotationId: v.id("rotations"),
+      selectedPhysicianId: v.id("physicians"),
+      score: v.number(),
+      scoreBreakdown: v.string(),
+      alternativesConsidered: v.number(),
+      passNumber: v.number(),
+      createdAt: v.number(),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    await requireAuthenticatedUser(ctx);
+    return await ctx.db
+      .query("autoFillDecisionLog")
+      .withIndex("by_calendar", (q) => q.eq("masterCalendarId", args.masterCalendarId))
+      .collect();
   },
 });
 
