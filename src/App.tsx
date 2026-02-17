@@ -76,7 +76,7 @@ function Content() {
 
 function Dashboard() {
   const [adminPage, setAdminPage] = useState<
-    "overview" | "rotations" | "clinicTypes" | "cfteTargets"
+    "overview" | "rotations" | "clinicTypes" | "cfteTargets" | "clinicAssignments"
   >("overview");
   const myProfile = useQuery(api.functions.physicians.getMyProfile);
   const physicianCount = useQuery(api.functions.physicians.getPhysicianCount);
@@ -126,6 +126,10 @@ function Dashboard() {
     api.functions.cfteTargets.getCurrentFiscalYearCfteTargets,
     myProfile?.role === "admin" ? {} : "skip",
   );
+  const adminClinicAssignmentsBundle = useQuery(
+    api.functions.physicianClinics.getCurrentFiscalYearPhysicianClinics,
+    myProfile?.role === "admin" ? {} : "skip",
+  );
 
   if (
     myProfile === undefined ||
@@ -140,6 +144,7 @@ function Dashboard() {
     (myProfile?.role === "admin" && adminRotationsBundle === undefined) ||
     (myProfile?.role === "admin" && adminClinicTypesBundle === undefined) ||
     (myProfile?.role === "admin" && adminCfteTargetsBundle === undefined) ||
+    (myProfile?.role === "admin" && adminClinicAssignmentsBundle === undefined) ||
     (myProfile?.role === "admin" && adminRequestBundle === undefined) ||
     (myProfile?.role === "admin" && adminTradeQueue === undefined)
   ) {
@@ -156,6 +161,8 @@ function Dashboard() {
   const showAdminRotationsPage = myProfile.role === "admin" && adminPage === "rotations";
   const showAdminClinicTypesPage = myProfile.role === "admin" && adminPage === "clinicTypes";
   const showAdminCfteTargetsPage = myProfile.role === "admin" && adminPage === "cfteTargets";
+  const showAdminClinicAssignmentsPage =
+    myProfile.role === "admin" && adminPage === "clinicAssignments";
 
   return (
     <div className="space-y-6">
@@ -185,6 +192,12 @@ function Dashboard() {
           >
             cFTE Targets
           </button>
+          <button
+            className={`px-3 py-2 text-sm rounded ${adminPage === "clinicAssignments" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}
+            onClick={() => setAdminPage("clinicAssignments")}
+          >
+            Clinic Assignments
+          </button>
         </div>
       ) : null}
 
@@ -194,6 +207,8 @@ function Dashboard() {
         <AdminClinicTypesPage bundle={adminClinicTypesBundle} />
       ) : showAdminCfteTargetsPage ? (
         <AdminCfteTargetsPage bundle={adminCfteTargetsBundle} />
+      ) : showAdminClinicAssignmentsPage ? (
+        <AdminClinicAssignmentsPage bundle={adminClinicAssignmentsBundle} />
       ) : (
         <>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -729,6 +744,215 @@ function AdminCfteTargetsPage({ bundle }: { bundle: any }) {
                     </td>
                   </tr>
                 ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AdminClinicAssignmentsPage({ bundle }: { bundle: any }) {
+  const upsertAssignment = useMutation(api.functions.physicianClinics.upsertPhysicianClinicAssignment);
+  const removeAssignment = useMutation(api.functions.physicianClinics.removePhysicianClinicAssignment);
+  const [draft, setDraft] = useState<Record<string, { halfDaysPerWeek: string; activeWeeks: string }>>({});
+  const [savingRowId, setSavingRowId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!bundle?.physicians || !bundle?.clinicTypes) return;
+    const assignmentByKey = new Map(
+      (bundle.assignments ?? []).map((assignment: any) => [
+        `${String(assignment.physicianId)}:${String(assignment.clinicTypeId)}`,
+        assignment,
+      ]),
+    );
+
+    const next: Record<string, { halfDaysPerWeek: string; activeWeeks: string }> = {};
+    for (const physician of bundle.physicians) {
+      for (const clinicType of bundle.clinicTypes) {
+        const key = `${String(physician._id)}:${String(clinicType._id)}`;
+        const existing = assignmentByKey.get(key);
+        next[key] = {
+          halfDaysPerWeek: existing ? String(existing.halfDaysPerWeek) : "",
+          activeWeeks: existing ? String(existing.activeWeeks) : "",
+        };
+      }
+    }
+    setDraft(next);
+  }, [bundle?.fiscalYear?._id, bundle?.physicians, bundle?.clinicTypes, bundle?.assignments]);
+
+  if (!bundle?.fiscalYear) {
+    return (
+      <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
+        <h3 className="text-lg font-semibold mb-2">Clinic Assignments</h3>
+        <p className="text-sm text-gray-600">No active fiscal year found. Create/activate a fiscal year first.</p>
+      </div>
+    );
+  }
+
+  const assignmentByKey = new Map(
+    (bundle.assignments ?? []).map((assignment: any) => [
+      `${String(assignment.physicianId)}:${String(assignment.clinicTypeId)}`,
+      assignment,
+    ]),
+  );
+
+  const savePhysicianRow = async (physicianId: string) => {
+    if (!bundle?.clinicTypes) return;
+
+    setSavingRowId(physicianId);
+    try {
+      let changed = 0;
+      for (const clinicType of bundle.clinicTypes) {
+        const clinicTypeId = String(clinicType._id);
+        const key = `${physicianId}:${clinicTypeId}`;
+        const current = assignmentByKey.get(key);
+        const target = draft[key] ?? { halfDaysPerWeek: "", activeWeeks: "" };
+        const nextHalfDays = target.halfDaysPerWeek.trim() === "" ? 0 : Number(target.halfDaysPerWeek);
+        const nextWeeks = target.activeWeeks.trim() === "" ? 0 : Number(target.activeWeeks);
+
+        if (!Number.isInteger(nextHalfDays) || nextHalfDays < 0 || nextHalfDays > 10) {
+          throw new Error(`Half-days/week must be an integer 0-10 for ${clinicType.name}`);
+        }
+        if (!Number.isInteger(nextWeeks) || nextWeeks < 0 || nextWeeks > 52) {
+          throw new Error(`Active weeks must be an integer 0-52 for ${clinicType.name}`);
+        }
+
+        const currentHalfDays = current?.halfDaysPerWeek ?? 0;
+        const currentWeeks = current?.activeWeeks ?? 0;
+        const isChanged = currentHalfDays !== nextHalfDays || currentWeeks !== nextWeeks;
+        if (!isChanged) continue;
+
+        if (nextHalfDays === 0 || nextWeeks === 0) {
+          await removeAssignment({
+            physicianId: physicianId as any,
+            clinicTypeId: clinicTypeId as any,
+          });
+          changed += 1;
+          continue;
+        }
+
+        await upsertAssignment({
+          physicianId: physicianId as any,
+          clinicTypeId: clinicTypeId as any,
+          halfDaysPerWeek: nextHalfDays,
+          activeWeeks: nextWeeks,
+        });
+        changed += 1;
+      }
+
+      toast.success(changed > 0 ? `Saved ${changed} assignment change(s)` : "No assignment changes");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to save clinic assignments");
+    } finally {
+      setSavingRowId(null);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
+        <h3 className="text-lg font-semibold">Physician Clinic Assignments</h3>
+        <p className="text-sm text-gray-600">
+          {bundle.fiscalYear.label} ({bundle.fiscalYear.status}) - half-days/week (0-10, Mon-Fri) and active
+          weeks (0-52) per clinic
+        </p>
+      </div>
+
+      <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
+        <div className="border border-gray-200 rounded-md overflow-auto max-h-[620px]">
+          <table className="w-full text-xs">
+            <thead className="bg-gray-50 text-gray-700 sticky top-0">
+              <tr>
+                <th className="text-left px-3 py-2 min-w-[190px]">Physician</th>
+                {(bundle.clinicTypes ?? []).map((clinicType: any) => (
+                  <th key={String(clinicType._id)} className="text-left px-2 py-2 min-w-[160px]">
+                    <div className="font-medium">{clinicType.name}</div>
+                    <div className="text-[11px] text-gray-500">{clinicType.cftePerHalfDay} cFTE/half-day</div>
+                  </th>
+                ))}
+                <th className="text-left px-3 py-2 min-w-[110px]">Save</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(bundle.physicians ?? []).length === 0 ? (
+                <tr>
+                  <td className="px-3 py-3 text-gray-500" colSpan={(bundle.clinicTypes?.length ?? 0) + 2}>
+                    No active physicians found.
+                  </td>
+                </tr>
+              ) : (
+                (bundle.physicians ?? []).map((physician: any) => {
+                  const physicianId = String(physician._id);
+                  return (
+                    <tr key={physicianId} className="border-t border-gray-100 align-top">
+                      <td className="px-3 py-2">
+                        <div className="font-medium">{physician.fullName}</div>
+                        <div className="text-[11px] text-gray-500">{physician.initials}</div>
+                      </td>
+                      {(bundle.clinicTypes ?? []).map((clinicType: any) => {
+                        const key = `${physicianId}:${String(clinicType._id)}`;
+                        const cell = draft[key] ?? { halfDaysPerWeek: "", activeWeeks: "" };
+                        return (
+                          <td key={String(clinicType._id)} className="px-2 py-2">
+                            <div className="space-y-1">
+                              <input
+                                type="number"
+                                min="0"
+                                max="10"
+                                step="1"
+                                placeholder="HD"
+                                value={cell.halfDaysPerWeek}
+                                disabled={savingRowId === physicianId}
+                                onChange={(e) =>
+                                  setDraft((prev) => ({
+                                    ...prev,
+                                    [key]: {
+                                      ...(prev[key] ?? { halfDaysPerWeek: "", activeWeeks: "" }),
+                                      halfDaysPerWeek: e.target.value,
+                                    },
+                                  }))
+                                }
+                                className="w-16 rounded border border-gray-300 px-2 py-1"
+                              />
+                              <input
+                                type="number"
+                                min="0"
+                                max="52"
+                                step="1"
+                                placeholder="Wk"
+                                value={cell.activeWeeks}
+                                disabled={savingRowId === physicianId}
+                                onChange={(e) =>
+                                  setDraft((prev) => ({
+                                    ...prev,
+                                    [key]: {
+                                      ...(prev[key] ?? { halfDaysPerWeek: "", activeWeeks: "" }),
+                                      activeWeeks: e.target.value,
+                                    },
+                                  }))
+                                }
+                                className="w-16 rounded border border-gray-300 px-2 py-1"
+                              />
+                            </div>
+                          </td>
+                        );
+                      })}
+                      <td className="px-3 py-2">
+                        <button
+                          onClick={() => {
+                            void savePhysicianRow(physicianId);
+                          }}
+                          disabled={savingRowId !== null && savingRowId !== physicianId}
+                          className="px-2 py-1 text-xs rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+                        >
+                          {savingRowId === physicianId ? "Saving..." : "Save Row"}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>

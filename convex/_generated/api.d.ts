@@ -12,6 +12,7 @@ import type * as auth from "../auth.js";
 import type * as functions_cfteTargets from "../functions/cfteTargets.js";
 import type * as functions_clinicTypes from "../functions/clinicTypes.js";
 import type * as functions_fiscalYears from "../functions/fiscalYears.js";
+import type * as functions_physicianClinics from "../functions/physicianClinics.js";
 import type * as functions_physicians from "../functions/physicians.js";
 import type * as functions_rotations from "../functions/rotations.js";
 import type * as functions_scheduleRequests from "../functions/scheduleRequests.js";
@@ -21,6 +22,7 @@ import type * as lib_auth from "../lib/auth.js";
 import type * as lib_cfte from "../lib/cfte.js";
 import type * as lib_cfteTargets from "../lib/cfteTargets.js";
 import type * as lib_clinicTypes from "../lib/clinicTypes.js";
+import type * as lib_physicianClinics from "../lib/physicianClinics.js";
 import type * as lib_workflowPolicy from "../lib/workflowPolicy.js";
 import type * as router from "../router.js";
 
@@ -35,6 +37,7 @@ declare const fullApi: ApiFromModules<{
   "functions/cfteTargets": typeof functions_cfteTargets;
   "functions/clinicTypes": typeof functions_clinicTypes;
   "functions/fiscalYears": typeof functions_fiscalYears;
+  "functions/physicianClinics": typeof functions_physicianClinics;
   "functions/physicians": typeof functions_physicians;
   "functions/rotations": typeof functions_rotations;
   "functions/scheduleRequests": typeof functions_scheduleRequests;
@@ -44,6 +47,7 @@ declare const fullApi: ApiFromModules<{
   "lib/cfte": typeof lib_cfte;
   "lib/cfteTargets": typeof lib_cfteTargets;
   "lib/clinicTypes": typeof lib_clinicTypes;
+  "lib/physicianClinics": typeof lib_physicianClinics;
   "lib/workflowPolicy": typeof lib_workflowPolicy;
   router: typeof router;
 }>;

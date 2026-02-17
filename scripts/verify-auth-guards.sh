@@ -37,4 +37,7 @@ check convex/functions/clinicTypes.ts "await requireAdmin\(ctx\)" "clinic type a
 # cFTE target functions
 check convex/functions/cfteTargets.ts "await requireAdmin\(ctx\)" "cfte target admin guard"
 
+# Physician clinic assignment functions
+check convex/functions/physicianClinics.ts "await requireAdmin\(ctx\)" "physician clinic admin guard"
+
 echo "Auth guard checks passed"
