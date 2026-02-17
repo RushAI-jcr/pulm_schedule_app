@@ -206,7 +206,7 @@ export const DEFAULT_AUTO_FILL_CONFIG: AutoFillConfig = {
 
 ##### Backend changes
 
-- [ ] Create `convex/lib/autoFillScorer.ts` -- the scoring engine:
+- [x] Create `convex/lib/autoFillScorer.ts` -- the scoring engine:
 
 ```typescript
 // convex/lib/autoFillScorer.ts
@@ -236,7 +236,7 @@ export function scoreCandidate(params: {
   - Deprioritize: fixed penalty when flag is set
   - Final score = weighted sum normalized to 0-100
 
-- [ ] Create `convex/lib/autoFillSolver.ts` -- the multi-pass solver:
+- [x] Create `convex/lib/autoFillSolver.ts` -- the multi-pass solver:
 
 ```typescript
 // convex/lib/autoFillSolver.ts
