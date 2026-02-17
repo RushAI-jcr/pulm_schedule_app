@@ -488,13 +488,13 @@ export function computeHolidayParityScores(params: {
   - Test Thanksgiving/Christmas rotation across years
   - Test when no prior year exists
 
-- [ ] Create `tests/autoFillIntegration.test.ts`:
+- [x] Create `tests/autoFillIntegration.test.ts`:
   - Full pipeline test with realistic data (15 physicians, 8 rotations, 52 weeks)
   - Verify all hard constraints satisfied
   - Verify metrics are within acceptable ranges
   - Verify holiday parity is maintained
 
-- [ ] Update existing tests in `tests/masterCalendarAssignments.test.ts`:
+- [x] Update existing tests in `tests/masterCalendarAssignments.test.ts`:
   - Ensure existing tests still pass with refactored code
   - Add tests for new helper functions
 
@@ -505,11 +505,11 @@ export function computeHolidayParityScores(params: {
 - `tests/autoFillIntegration.test.ts`
 
 **Success criteria:**
-- [ ] All existing 66 tests still pass
-- [ ] New test files cover all scoring dimensions
-- [ ] Integration test verifies end-to-end with realistic data
-- [ ] Edge case tests cover degenerate scenarios
-- [ ] Holiday parity tests verify cross-year correctness
+- [x] All existing 66 tests still pass (now 114 tests total)
+- [x] New test files cover all scoring dimensions
+- [x] Integration test verifies end-to-end with realistic data
+- [x] Edge case tests cover degenerate scenarios
+- [x] Holiday parity tests verify cross-year correctness
 
 ---
 
