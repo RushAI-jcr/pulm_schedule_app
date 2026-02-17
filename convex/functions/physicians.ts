@@ -73,6 +73,8 @@ export const getPhysicianCount = query({
   returns: v.number(),
   handler: async (ctx) => {
     await requireAuthenticatedUser(ctx);
+    // Note: .collect() is acceptable for physicians table (small: ~25 records)
+    // For larger tables, use .withIndex() with filtering or pagination
     return (await ctx.db.query("physicians").collect()).length;
   },
 });
@@ -138,23 +140,17 @@ export const linkCurrentUserToPhysicianByEmail = mutation({
     const byUserId = await ctx.db
       .query("physicians")
       .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
-      .collect();
-    if (byUserId.length > 1) {
-      throw new Error("Data integrity error: duplicate physician linkage for current user");
-    }
-    if (byUserId.length === 1 && normalizeEmail(byUserId[0].email) !== email) {
+      .unique();
+    if (byUserId && normalizeEmail(byUserId.email) !== email) {
       throw new Error("Signed-in account already linked to another physician");
     }
 
     const byEmail = await ctx.db
       .query("physicians")
       .withIndex("by_email", (q) => q.eq("email", email))
-      .collect();
+      .unique();
 
-    if (byEmail.length > 1) {
-      throw new Error("Data integrity error: duplicate physician records for email");
-    }
-    const physician = byEmail[0];
+    const physician = byEmail;
 
     if (!physician) throw new Error("No physician record matches this email");
     if (physician.userId && physician.userId !== identity.subject) {
@@ -168,15 +164,10 @@ export const linkCurrentUserToPhysicianByEmail = mutation({
       await ctx.db.patch(physician._id, { userId: identity.subject });
     }
 
-    const existingUsers = await ctx.db
+    const existingUser = await ctx.db
       .query("users")
       .withIndex("by_workosUserId", (q) => q.eq("workosUserId", identity.subject))
-      .collect();
-    if (existingUsers.length > 1) {
-      throw new Error("Data integrity error: duplicate app users for WorkOS subject");
-    }
-
-    const existingUser = existingUsers[0] ?? null;
+      .unique();
     if (existingUser && !normalizeAppRole(existingUser.role)) {
       throw new Error("Data integrity error: existing app user has unsupported role");
     }
@@ -223,22 +214,17 @@ export const syncWorkosSessionUser = mutation({
 
     const email = normalizeEmail(args.email);
 
-    const [linkedPhysicians, existingUsers] = await Promise.all([
+    const [linkedPhysician, existingUser] = await Promise.all([
       ctx.db
         .query("physicians")
         .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
-        .collect(),
+        .unique(),
       ctx.db
         .query("users")
         .withIndex("by_workosUserId", (q) => q.eq("workosUserId", identity.subject))
-        .collect(),
+        .unique(),
     ]);
 
-    if (existingUsers.length > 1) {
-      throw new Error("Data integrity error: duplicate app users for WorkOS subject");
-    }
-
-    const existingUser = existingUsers[0] ?? null;
     if (
       existingUser &&
       identity.email &&
@@ -251,23 +237,15 @@ export const syncWorkosSessionUser = mutation({
       throw new Error("Data integrity error: existing app user has unsupported role");
     }
 
-    if (linkedPhysicians.length > 1) {
-      throw new Error("Data integrity error: duplicate physician linkage for current user");
-    }
-
-    let physician = linkedPhysicians[0] ?? null;
+    let physician = linkedPhysician;
 
     if (!physician) {
       const byEmail = await ctx.db
         .query("physicians")
         .withIndex("by_email", (q) => q.eq("email", email))
-        .collect();
+        .unique();
 
-      if (byEmail.length > 1) {
-        throw new Error("Data integrity error: duplicate physician records for email");
-      }
-
-      physician = byEmail[0] ?? null;
+      physician = byEmail;
       if (physician) {
         if (physician.userId && physician.userId !== identity.subject) {
           throw new Error("Physician record already linked to another account");
@@ -322,6 +300,7 @@ export const getPhysicians = query({
   ),
   handler: async (ctx) => {
     await requireAuthenticatedUser(ctx);
+    // Note: .collect() is acceptable for physicians table (small: ~25 records)
     const physicians = await ctx.db.query("physicians").collect();
     physicians.sort((a, b) => {
       const byLast = a.lastName.localeCompare(b.lastName);
@@ -391,14 +370,14 @@ export const createPhysician = mutation({
     const existingByEmail = await ctx.db
       .query("physicians")
       .withIndex("by_email", (q) => q.eq("email", email))
-      .collect();
-    if (existingByEmail.length > 0) throw new Error("A physician with this email already exists");
+      .first();
+    if (existingByEmail) throw new Error("A physician with this email already exists");
 
     const existingByInitials = await ctx.db
       .query("physicians")
       .withIndex("by_initials", (q) => q.eq("initials", initials))
-      .collect();
-    if (existingByInitials.length > 0) throw new Error("A physician with these initials already exists");
+      .first();
+    if (existingByInitials) throw new Error("A physician with these initials already exists");
 
     return await ctx.db.insert("physicians", {
       firstName,
@@ -430,7 +409,7 @@ export const updatePhysician = mutation({
 
     const { physicianId, ...updates } = args;
     const existing = await ctx.db.get(physicianId);
-    if (!existing) throw new Error("Physician not found");
+    if (!existing) throw new Error(`Physician not found: physicianId ${physicianId}`);
 
     // Validate week IDs if provided
     if (updates.activeFromWeekId) {
@@ -497,11 +476,11 @@ export const deactivatePhysician = mutation({
 
     // Validate physician and week
     const physician = await ctx.db.get(args.physicianId);
-    if (!physician) throw new Error("Physician not found");
+    if (!physician) throw new Error(`Physician not found: physicianId ${args.physicianId}`);
 
     const activeUntilWeek = await ctx.db.get(args.activeUntilWeekId);
     if (!activeUntilWeek || activeUntilWeek.fiscalYearId !== args.fiscalYearId) {
-      throw new Error("Invalid week selected");
+      throw new Error(`Invalid week selected: weekId ${args.activeUntilWeekId} does not belong to fiscalYearId ${args.fiscalYearId}`);
     }
 
     // Set activeUntilWeekId on physician record

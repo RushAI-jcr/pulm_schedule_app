@@ -390,6 +390,7 @@ interface SolverState {
   weekCountByPhysician: Map<string, number>;
   rotationCountByPhysician: Map<string, Map<string, number>>;
   lastRotationWeekByPhysician: Map<string, Map<string, number>>;
+  assignedWeeksByPhysicianRotation: Map<string, Map<string, Set<number>>>; // NEW: actual week numbers
   runningRotationCfte: Map<string, number>;
 }
 
@@ -423,6 +424,7 @@ function buildSolverState(params: {
   const weekCountByPhysician = new Map<string, number>();
   const rotationCountByPhysician = new Map<string, Map<string, number>>();
   const lastRotationWeekByPhysician = new Map<string, Map<string, number>>();
+  const assignedWeeksByPhysicianRotation = new Map<string, Map<string, Set<number>>>();
   const runningRotationCfte = new Map<string, number>();
 
   // We need week numbers for tracking - store a temp lookup
@@ -460,6 +462,19 @@ function buildSolverState(params: {
       if (weekNumber > currentLast) {
         lastWeeks.set(a.rotationId, weekNumber);
       }
+
+      // Track actual assigned week numbers
+      let physicianWeeks = assignedWeeksByPhysicianRotation.get(pid);
+      if (!physicianWeeks) {
+        physicianWeeks = new Map<string, Set<number>>();
+        assignedWeeksByPhysicianRotation.set(pid, physicianWeeks);
+      }
+      let rotationWeeks = physicianWeeks.get(a.rotationId);
+      if (!rotationWeeks) {
+        rotationWeeks = new Set<number>();
+        physicianWeeks.set(a.rotationId, rotationWeeks);
+      }
+      rotationWeeks.add(weekNumber);
     }
 
     const cftePerWeek = rotationCfteLookup.get(a.rotationId) ?? 0;
@@ -472,6 +487,7 @@ function buildSolverState(params: {
     weekCountByPhysician,
     rotationCountByPhysician,
     lastRotationWeekByPhysician,
+    assignedWeeksByPhysicianRotation,
     runningRotationCfte,
   };
 }
@@ -668,6 +684,19 @@ function applyAssignment(
   if (weekNumber > currentLast) {
     lastWeeks.set(cell.rotationId, weekNumber);
   }
+
+  // Update assigned week numbers for consecutive week tracking
+  let physicianWeeks = state.assignedWeeksByPhysicianRotation.get(pid);
+  if (!physicianWeeks) {
+    physicianWeeks = new Map<string, Set<number>>();
+    state.assignedWeeksByPhysicianRotation.set(pid, physicianWeeks);
+  }
+  let rotationWeeks = physicianWeeks.get(cell.rotationId);
+  if (!rotationWeeks) {
+    rotationWeeks = new Set<number>();
+    physicianWeeks.set(cell.rotationId, rotationWeeks);
+  }
+  rotationWeeks.add(weekNumber);
 
   // Update cFTE
   state.runningRotationCfte.set(
@@ -914,25 +943,10 @@ function getAssignedWeekNumbersForRotation(
   physicianId: string,
   rotationId: string,
 ): number[] {
-  // This is an approximation - we track last week but not all weeks.
-  // For consecutive check, we rely on the last rotation week tracking.
-  // Return the last week number if available.
-  const lastWeeks = state.lastRotationWeekByPhysician.get(physicianId);
-  if (!lastWeeks) return [];
-  const lastWeek = lastWeeks.get(rotationId);
-  if (lastWeek === undefined) return [];
-
-  // Build from rotation counts - we know count but not exact weeks.
-  // For maxConsecutive check we need all assigned week numbers.
-  // Since we track them incrementally, we build from the count:
-  const rotCounts = state.rotationCountByPhysician.get(physicianId);
-  const count = rotCounts?.get(rotationId) ?? 0;
-
-  // Best effort: return range ending at lastWeek
-  // This is conservative - may over-count consecutive streaks
-  const weeks: number[] = [];
-  for (let i = 0; i < count; i++) {
-    weeks.push(lastWeek - i);
-  }
-  return weeks;
+  // Return actual assigned week numbers from state
+  const physicianWeeks = state.assignedWeeksByPhysicianRotation.get(physicianId);
+  if (!physicianWeeks) return [];
+  const rotationWeeks = physicianWeeks.get(rotationId);
+  if (!rotationWeeks) return [];
+  return Array.from(rotationWeeks);
 }

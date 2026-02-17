@@ -1,6 +1,6 @@
 import { mutation, query, MutationCtx, QueryCtx } from "../_generated/server";
 import { v } from "convex/values";
-import { Doc } from "../_generated/dataModel";
+import { Doc, Id } from "../_generated/dataModel";
 import { getCurrentPhysician, requireAdmin } from "../lib/auth";
 import {
   canAdminApproveTrade,
@@ -193,23 +193,27 @@ async function hydrateTrades(ctx: AnyCtx, trades: Array<Doc<"tradeRequests">>): 
     rotationIds.add(String(trade.targetRotationId));
   }
 
+  // Parallel fetch all entities to avoid N+1 queries
+  const [physicianResults, weekResults, rotationResults] = await Promise.all([
+    Promise.all(Array.from(physicianIds).map((id) => ctx.db.get(id as Id<"physicians">))),
+    Promise.all(Array.from(weekIds).map((id) => ctx.db.get(id as Id<"weeks">))),
+    Promise.all(Array.from(rotationIds).map((id) => ctx.db.get(id as Id<"rotations">))),
+  ]);
+
   const physicians = new Map<string, Doc<"physicians">>();
-  for (const id of physicianIds) {
-    const physician = await ctx.db.get(id as Doc<"physicians">["_id"]);
-    if (physician) physicians.set(id, physician);
-  }
+  physicianResults.forEach((physician, i) => {
+    if (physician) physicians.set(Array.from(physicianIds)[i], physician);
+  });
 
   const weeks = new Map<string, Doc<"weeks">>();
-  for (const id of weekIds) {
-    const week = await ctx.db.get(id as Doc<"weeks">["_id"]);
-    if (week) weeks.set(id, week);
-  }
+  weekResults.forEach((week, i) => {
+    if (week) weeks.set(Array.from(weekIds)[i], week);
+  });
 
   const rotations = new Map<string, Doc<"rotations">>();
-  for (const id of rotationIds) {
-    const rotation = await ctx.db.get(id as Doc<"rotations">["_id"]);
-    if (rotation) rotations.set(id, rotation);
-  }
+  rotationResults.forEach((rotation, i) => {
+    if (rotation) rotations.set(Array.from(rotationIds)[i], rotation);
+  });
 
   return trades
     .map((trade) => {
@@ -1074,6 +1078,8 @@ export const adminResolveTrade = mutation({
 
     const ts = Date.now();
 
+    // Perform atomic swap of assignments
+    // Note: Convex mutations are serializable transactions - all patches succeed or all fail
     await ctx.db.patch(requesterAssignment._id, {
       physicianId: trade.targetPhysicianId,
       assignedBy: admin.actorPhysicianId ?? undefined,
@@ -1085,6 +1091,17 @@ export const adminResolveTrade = mutation({
       assignedBy: admin.actorPhysicianId ?? undefined,
       assignedAt: ts,
     });
+
+    // Verify swap succeeded before marking trade approved
+    const verifyRequester = await ctx.db.get(requesterAssignment._id);
+    const verifyTarget = await ctx.db.get(targetAssignment._id);
+
+    if (
+      verifyRequester?.physicianId !== trade.targetPhysicianId ||
+      verifyTarget?.physicianId !== trade.requestingPhysicianId
+    ) {
+      throw new Error("Assignment swap verification failed - transaction will be rolled back");
+    }
 
     await ctx.db.patch(trade._id, {
       status: "admin_approved",

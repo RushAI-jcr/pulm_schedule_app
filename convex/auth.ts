@@ -7,6 +7,8 @@ function normalizeEmail(email: string | null | undefined): string | null {
   return email.trim().toLowerCase();
 }
 
+// Exception: Auth queries intentionally don't call requireAuthenticatedUser()
+// to allow reporting auth state (logged in vs logged out) to middleware and UI
 export const loggedInUser = query({
   args: {},
   returns: v.union(
@@ -27,42 +29,26 @@ export const loggedInUser = query({
       return null;
     }
 
-    const users = await ctx.db
+    const appUser = await ctx.db
       .query("users")
       .withIndex("by_workosUserId", (q) => q.eq("workosUserId", identity.subject))
-      .collect();
-
-    if (users.length > 1) {
-      throw new Error("Data integrity error: duplicate app users for WorkOS subject");
-    }
-
-    const appUser = users[0] ?? null;
+      .unique();
     if (appUser && !normalizeAppRole(appUser.role)) {
       throw new Error("Data integrity error: existing app user has unsupported role");
     }
 
-    const byUserId = await ctx.db
+    let physician = await ctx.db
       .query("physicians")
       .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
-      .collect();
-
-    if (byUserId.length > 1) {
-      throw new Error("Data integrity error: duplicate physician linkage for current user");
-    }
-
-    let physician: (typeof byUserId)[number] | null = byUserId[0] ?? null;
+      .unique();
 
     if (!physician) {
       const email = normalizeEmail(identity.email);
       if (email) {
-        const byEmail = await ctx.db
+        physician = await ctx.db
           .query("physicians")
           .withIndex("by_email", (q) => q.eq("email", email))
-          .collect();
-        if (byEmail.length > 1) {
-          throw new Error("Data integrity error: duplicate physician records for email");
-        }
-        physician = byEmail[0] ?? null;
+          .unique();
       }
     }
 

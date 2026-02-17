@@ -1300,13 +1300,13 @@ export const assignCurrentFiscalYearDraftCell = mutation({
     ]);
 
     if (!week || week.fiscalYearId !== fiscalYear._id) {
-      throw new Error("Invalid week selected");
+      throw new Error(`Invalid week selected: weekId ${args.weekId}`);
     }
     if (!rotation || rotation.fiscalYearId !== fiscalYear._id) {
-      throw new Error("Invalid rotation selected");
+      throw new Error(`Invalid rotation selected: rotationId ${args.rotationId}`);
     }
     if (args.physicianId && (!physician || !physician.isActive)) {
-      throw new Error("Invalid physician selected");
+      throw new Error(`Invalid physician selected: physicianId ${args.physicianId}`);
     }
 
     // Check physician active date range
@@ -1661,6 +1661,7 @@ export const autoAssignCurrentFiscalYearDraft = mutation({
       assignments.map((a) => [toCellKey(a.weekId, a.rotationId), a]),
     );
 
+    const timestamp = Date.now(); // Call once and reuse
     let assignedCount = 0;
     for (const solverAssignment of result.assignments) {
       const cellKey = `${solverAssignment.weekId}:${solverAssignment.rotationId}`;
@@ -1670,7 +1671,7 @@ export const autoAssignCurrentFiscalYearDraft = mutation({
       await ctx.db.patch(dbAssignment._id, {
         physicianId: solverAssignment.physicianId as Id<"physicians">,
         assignedBy: admin.actorPhysicianId ?? undefined,
-        assignedAt: Date.now(),
+        assignedAt: timestamp,
         assignmentSource: "auto" as const,
       });
       assignedCount++;
@@ -1685,7 +1686,7 @@ export const autoAssignCurrentFiscalYearDraft = mutation({
         scoreBreakdown: JSON.stringify(solverAssignment.breakdown),
         alternativesConsidered: 0, // simplified for now
         passNumber: solverAssignment.passNumber,
-        createdAt: Date.now(),
+        createdAt: timestamp,
       });
     }
 

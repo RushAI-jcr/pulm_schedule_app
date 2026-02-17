@@ -19,6 +19,7 @@ import {
   mapUploadedWeeksToFiscalWeeks,
   normalizeImportFiscalYearLabel,
 } from "../lib/scheduleImport";
+import { requireCollectingWindow, getOrCreateRequest } from "../lib/scheduleRequestHelpers";
 
 const availabilityValidator = v.union(
   v.literal("green"),
@@ -34,52 +35,6 @@ const importAvailabilityValidator = v.union(
 );
 
 type FunctionCtx = QueryCtx | MutationCtx;
-
-async function getOrCreateRequest(
-  ctx: MutationCtx,
-  physicianId: Id<"physicians">,
-  fiscalYearId: Id<"fiscalYears">,
-) {
-  const existing = await ctx.db
-    .query("scheduleRequests")
-    .withIndex("by_physician_fy", (q) =>
-      q.eq("physicianId", physicianId).eq("fiscalYearId", fiscalYearId),
-    )
-    .collect();
-
-  if (existing.length > 1) {
-    throw new Error("Data integrity error: duplicate schedule requests for physician/fiscal year");
-  }
-  if (existing.length === 1) return existing[0];
-
-  const requestId = await ctx.db.insert("scheduleRequests", {
-    physicianId,
-    fiscalYearId,
-    status: "draft",
-    rotationPreferenceApprovalStatus: "pending",
-    rotationPreferenceApprovedAt: undefined,
-    rotationPreferenceApprovedBy: undefined,
-  });
-
-  const created = await ctx.db.get(requestId);
-  if (!created) {
-    throw new Error("Failed to create schedule request");
-  }
-  return created;
-}
-
-function requireCollectingWindow(
-  fiscalYear: Pick<Doc<"fiscalYears">, "status" | "requestDeadline">,
-  now = Date.now(),
-) {
-  const fiscalYearStatus = fiscalYear.status as FiscalYearStatus;
-  if (!canEditRequestForFiscalYear(fiscalYearStatus)) {
-    throw new Error("Scheduling requests are only editable while fiscal year is collecting");
-  }
-  if (!isRequestDeadlineOpen(fiscalYear, now)) {
-    throw new Error("Request deadline has passed for this fiscal year");
-  }
-}
 
 export const getCurrentFiscalYearWeeks = query({
   args: {},

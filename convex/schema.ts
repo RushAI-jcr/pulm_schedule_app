@@ -33,7 +33,8 @@ const applicationTables = {
     .index("by_userId", ["userId"])
     .index("by_initials", ["initials"])
     .index("by_email", ["email"])
-    .index("by_role", ["role"]),
+    .index("by_role", ["role"])
+    .index("by_isActive", ["isActive"]),
 
   // ========================================
   // FISCAL YEAR CONFIGURATION
@@ -141,7 +142,8 @@ const applicationTables = {
     isActive: v.boolean(),
   })
     .index("by_fiscalYear", ["fiscalYearId"])
-    .index("by_fiscalYear_name", ["fiscalYearId", "name"]),
+    .index("by_fiscalYear_name", ["fiscalYearId", "name"])
+    .index("by_fiscalYear_isActive", ["fiscalYearId", "isActive"]),
 
   // ========================================
   // CLINIC CONFIGURATION (Admin-set annually)
