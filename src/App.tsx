@@ -13,6 +13,14 @@ const availabilityOptions: Array<{ value: Availability; label: string }> = [
   { value: "red", label: "Red - Do not schedule" },
 ];
 
+const defaultClinicTypeNames = [
+  "Pulmonary RAB",
+  "Sleep Clinic",
+  "CF Clinic",
+  "Pulmonary South Loop",
+  "Pulmonary Oak Park",
+];
+
 export default function App() {
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
@@ -67,7 +75,7 @@ function Content() {
 }
 
 function Dashboard() {
-  const [adminPage, setAdminPage] = useState<"overview" | "rotations">("overview");
+  const [adminPage, setAdminPage] = useState<"overview" | "rotations" | "clinicTypes">("overview");
   const myProfile = useQuery(api.functions.physicians.getMyProfile);
   const physicianCount = useQuery(api.functions.physicians.getPhysicianCount);
   const linkCurrentUser = useMutation(api.functions.physicians.linkCurrentUserToPhysicianByEmail);
@@ -108,6 +116,10 @@ function Dashboard() {
     api.functions.rotations.getCurrentFiscalYearRotations,
     myProfile?.role === "admin" ? {} : "skip",
   );
+  const adminClinicTypesBundle = useQuery(
+    api.functions.clinicTypes.getCurrentFiscalYearClinicTypes,
+    myProfile?.role === "admin" ? {} : "skip",
+  );
 
   if (
     myProfile === undefined ||
@@ -120,6 +132,7 @@ function Dashboard() {
     tradeOptions === undefined ||
     myTrades === undefined ||
     (myProfile?.role === "admin" && adminRotationsBundle === undefined) ||
+    (myProfile?.role === "admin" && adminClinicTypesBundle === undefined) ||
     (myProfile?.role === "admin" && adminRequestBundle === undefined) ||
     (myProfile?.role === "admin" && adminTradeQueue === undefined)
   ) {
@@ -134,6 +147,7 @@ function Dashboard() {
   }
 
   const showAdminRotationsPage = myProfile.role === "admin" && adminPage === "rotations";
+  const showAdminClinicTypesPage = myProfile.role === "admin" && adminPage === "clinicTypes";
 
   return (
     <div className="space-y-6">
@@ -151,11 +165,19 @@ function Dashboard() {
           >
             Rotations
           </button>
+          <button
+            className={`px-3 py-2 text-sm rounded ${adminPage === "clinicTypes" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}
+            onClick={() => setAdminPage("clinicTypes")}
+          >
+            Clinic Types
+          </button>
         </div>
       ) : null}
 
       {showAdminRotationsPage ? (
         <AdminRotationsPage bundle={adminRotationsBundle} />
+      ) : showAdminClinicTypesPage ? (
+        <AdminClinicTypesPage bundle={adminClinicTypesBundle} />
       ) : (
         <>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -368,6 +390,178 @@ function AdminRotationsPage({ bundle }: { bundle: any }) {
                         className="px-2 py-1 text-xs rounded bg-gray-700 text-white hover:bg-gray-800"
                       >
                         {rotation.isActive ? "Deactivate" : "Activate"}
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AdminClinicTypesPage({ bundle }: { bundle: any }) {
+  const createClinicType = useMutation(api.functions.clinicTypes.createClinicType);
+  const setClinicTypeActive = useMutation(api.functions.clinicTypes.setClinicTypeActive);
+  const [name, setName] = useState("");
+  const [cftePerHalfDay, setCftePerHalfDay] = useState("0.005");
+  const [isSaving, setIsSaving] = useState(false);
+
+  if (!bundle?.fiscalYear) {
+    return (
+      <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
+        <h3 className="text-lg font-semibold mb-2">Clinic Types</h3>
+        <p className="text-sm text-gray-600">No active fiscal year found. Create/activate a fiscal year first.</p>
+      </div>
+    );
+  }
+
+  const existingNames = new Set(
+    (bundle.clinicTypes ?? []).map((clinicType: any) => clinicType.name.trim().toLowerCase()),
+  );
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm space-y-4">
+        <div>
+          <h3 className="text-lg font-semibold">Manage Clinic Types</h3>
+          <p className="text-sm text-gray-600">
+            {bundle.fiscalYear.label} ({bundle.fiscalYear.status}) - half-day clinic assignments (Mon-Fri)
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <label className="text-sm">
+            <span className="block text-xs text-gray-600 mb-1">Clinic Type Name</span>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+              placeholder="Pulmonary RAB"
+              disabled={isSaving}
+            />
+          </label>
+          <label className="text-sm">
+            <span className="block text-xs text-gray-600 mb-1">cFTE per half-day</span>
+            <input
+              type="number"
+              step="0.001"
+              min="0.001"
+              value={cftePerHalfDay}
+              onChange={(e) => setCftePerHalfDay(e.target.value)}
+              className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+              disabled={isSaving}
+            />
+          </label>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          {defaultClinicTypeNames.map((clinicName) => (
+            <button
+              key={clinicName}
+              disabled={isSaving || existingNames.has(clinicName.trim().toLowerCase())}
+              onClick={async () => {
+                setIsSaving(true);
+                try {
+                  const result = await createClinicType({
+                    name: clinicName,
+                    cftePerHalfDay: Number(cftePerHalfDay),
+                  });
+                  toast.success(`${clinicName}: ${result.message}`);
+                } catch (error) {
+                  toast.error(error instanceof Error ? error.message : "Failed to add clinic type");
+                } finally {
+                  setIsSaving(false);
+                }
+              }}
+              className="px-2 py-1 text-xs rounded bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:opacity-50"
+            >
+              {existingNames.has(clinicName.trim().toLowerCase()) ? `${clinicName} Added` : `Quick Add ${clinicName}`}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex justify-end">
+          <button
+            onClick={async () => {
+              if (!name.trim()) {
+                toast.error("Clinic type name is required");
+                return;
+              }
+              if (Number(cftePerHalfDay) <= 0) {
+                toast.error("cFTE per half-day must be greater than 0");
+                return;
+              }
+
+              setIsSaving(true);
+              try {
+                const result = await createClinicType({
+                  name,
+                  cftePerHalfDay: Number(cftePerHalfDay),
+                });
+                toast.success(result.message);
+                setName("");
+                setCftePerHalfDay("0.005");
+              } catch (error) {
+                toast.error(error instanceof Error ? error.message : "Failed to create clinic type");
+              } finally {
+                setIsSaving(false);
+              }
+            }}
+            disabled={isSaving}
+            className="px-3 py-2 text-sm rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            {isSaving ? "Saving..." : "Add Clinic Type"}
+          </button>
+        </div>
+      </div>
+
+      <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
+        <h4 className="font-semibold mb-3">Current Clinic Types ({bundle.clinicTypes.length})</h4>
+        <div className="border border-gray-200 rounded-md overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 text-gray-600">
+              <tr>
+                <th className="text-left px-3 py-2">Clinic Type</th>
+                <th className="text-left px-3 py-2">cFTE / Half-Day</th>
+                <th className="text-left px-3 py-2">Status</th>
+                <th className="text-left px-3 py-2">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {bundle.clinicTypes.length === 0 ? (
+                <tr>
+                  <td className="px-3 py-3 text-gray-500" colSpan={4}>
+                    No clinic types configured.
+                  </td>
+                </tr>
+              ) : (
+                bundle.clinicTypes.map((clinicType: any) => (
+                  <tr key={String(clinicType._id)} className="border-t border-gray-100">
+                    <td className="px-3 py-2 font-medium">{clinicType.name}</td>
+                    <td className="px-3 py-2">{clinicType.cftePerHalfDay}</td>
+                    <td className="px-3 py-2">
+                      <StatusBadge status={clinicType.isActive ? "active" : "inactive"} />
+                    </td>
+                    <td className="px-3 py-2">
+                      <button
+                        onClick={async () => {
+                          try {
+                            const result = await setClinicTypeActive({
+                              clinicTypeId: clinicType._id,
+                              isActive: !clinicType.isActive,
+                            });
+                            toast.success(result.message);
+                          } catch (error) {
+                            toast.error(error instanceof Error ? error.message : "Failed to update clinic type");
+                          }
+                        }}
+                        className="px-2 py-1 text-xs rounded bg-gray-700 text-white hover:bg-gray-800"
+                      >
+                        {clinicType.isActive ? "Deactivate" : "Activate"}
                       </button>
                     </td>
                   </tr>

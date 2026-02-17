@@ -31,4 +31,7 @@ check convex/functions/tradeRequests.ts "await requireAdmin\(ctx\)" "trade reque
 # Rotation functions
 check convex/functions/rotations.ts "await requireAdmin\(ctx\)" "rotation admin guard"
 
+# Clinic type functions
+check convex/functions/clinicTypes.ts "await requireAdmin\(ctx\)" "clinic type admin guard"
+
 echo "Auth guard checks passed"
