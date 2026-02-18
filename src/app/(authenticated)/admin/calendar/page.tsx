@@ -143,9 +143,7 @@ export default function MasterCalendarPage() {
     setLastMetrics(null)
     try {
       const result = await autoAssign({})
-      if (result.metrics) {
-        setLastMetrics(result.metrics as AutoFillMetrics)
-      }
+      setLastMetrics(result.metrics)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Auto-assign failed")
     } finally {

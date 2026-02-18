@@ -1,10 +1,12 @@
 import { mutation } from "../_generated/server";
 import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
+import { requireAdmin } from "../lib/auth";
 
 /**
- * Wipe and rebuild the FY 2025-2026 calendar using EXISTING physician records.
+ * ONE-TIME SEED OPERATION — admin only.
  *
+ * Wipe and rebuild the FY 2025-2026 calendar using EXISTING physician records.
  * Safe: only deletes FY-scoped data (weeks, rotations, masterCalendars, assignments).
  * Physicians are never touched — the 25 docs already linked to WorkOS accounts are preserved.
  *
@@ -21,10 +23,14 @@ export const resetAndImport = mutation({
     unknownInitials: v.array(v.string()),
   }),
   handler: async (ctx) => {
+    await requireAdmin(ctx);
+
     // ── Step 1: Wipe all existing FY 2025-2026 records ──────────────────────
     // Handles duplicates from previous seed runs gracefully.
-    const allFYs = await ctx.db.query("fiscalYears").collect();
-    const stale = allFYs.filter((fy) => fy.label === "FY 2025-2026");
+    const stale = await ctx.db
+      .query("fiscalYears")
+      .withIndex("by_label", (q) => q.eq("label", "FY 2025-2026"))
+      .collect()
 
     for (const fy of stale) {
       const calendars = await ctx.db

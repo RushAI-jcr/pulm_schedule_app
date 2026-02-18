@@ -15,7 +15,7 @@ import { CalendarFilters } from "@/components/calendar/calendar-filters"
 import { IcsExportButton } from "@/components/calendar/ics-export-button"
 import { YearMonthStack } from "@/components/calendar/year-month-stack"
 import { MonthDetail } from "@/components/calendar/month-detail"
-import { monthAnchorId } from "@/components/calendar/calendar-grid-utils"
+import { monthAnchorId, deriveFiscalMonths } from "@/components/calendar/calendar-grid-utils"
 import { useUserRole } from "@/hooks/use-user-role"
 import { useFiscalYear } from "@/hooks/use-fiscal-year"
 
@@ -84,24 +84,10 @@ export default function CalendarPage() {
       .sort((a, b) => a.name.localeCompare(b.name))
   }, [calendarData])
 
-  const fiscalMonths = useMemo(() => {
-    if (!calendarData?.grid) return []
-    const seen = new Set<string>()
-    const months: Array<{ month: number; year: number; label: string }> = []
-    for (const row of calendarData.grid) {
-      const d = new Date(row.startDate + "T00:00:00")
-      const key = `${d.getFullYear()}-${d.getMonth()}`
-      if (!seen.has(key)) {
-        seen.add(key)
-        months.push({
-          month: d.getMonth(),
-          year: d.getFullYear(),
-          label: d.toLocaleDateString("en-US", { month: "long", year: "numeric" }),
-        })
-      }
-    }
-    return months
-  }, [calendarData])
+  const fiscalMonths = useMemo(
+    () => (calendarData?.grid ? deriveFiscalMonths(calendarData.grid) : []),
+    [calendarData],
+  )
 
   // Effective physician ID for highlighting (My scope always uses signed-in physician)
   const filteredPhysicianId = useMemo((): Id<"physicians"> | null => {

@@ -3,8 +3,6 @@
 import { cn } from "@/lib/utils"
 import { getRotationAccent } from "./calendar-tokens"
 
-export type { RotationAccent } from "./calendar-tokens"
-export { getRotationAccent } from "./calendar-tokens"
 
 type Rotation = {
   _id: string

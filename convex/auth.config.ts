@@ -7,6 +7,8 @@ if (!clientId) {
 
 export default {
   providers: [
+    // Provider 1: WorkOS SSO tokens (enterprise SSO / SAML).
+    // Issued by the top-level WorkOS API; requires applicationID to scope the JWKS lookup.
     {
       type: "customJwt",
       issuer: "https://api.workos.com/",
@@ -14,6 +16,9 @@ export default {
       jwks: `https://api.workos.com/sso/jwks/${clientId}`,
       applicationID: clientId,
     },
+    // Provider 2: WorkOS AuthKit tokens (email/password, magic-link, social OAuth).
+    // Issued under the user_management sub-path; shares the same JWKS endpoint as
+    // Provider 1 — this is intentional per WorkOS docs (one key set per client).
     {
       type: "customJwt",
       issuer: `https://api.workos.com/user_management/${clientId}`,

@@ -142,7 +142,10 @@ export function IcsExportButton({
     setIsExporting(true)
     try {
       const exportData = buildExportData(calendarData, forPhysicianId)
-      if (exportData.assignments.length === 0) return
+      if (exportData.assignments.length === 0) {
+        console.warn("[IcsExportButton] No assignments found for the current filter — nothing to export.")
+        return
+      }
       const icsString = buildMasterCalendarIcs(exportData)
       downloadIcs(icsString, filename)
     } finally {
