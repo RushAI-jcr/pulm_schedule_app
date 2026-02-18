@@ -3,35 +3,45 @@
 ## Environments
 
 - Development: local `convex dev`
-- Staging/preview: per-branch preview deployment (PR-driven)
-- Production: protected main-branch deployment
+- Preview: per-PR Convex preview deployment
+- Production: protected `main` Convex deployment + frontend host deployment
 
-## Baseline pipeline
+## Pipeline overview
 
-1. Run checks: typecheck, tests, build
-2. Deploy backend + frontend together
-3. Verify health checks and critical user journeys
-4. Mark release and notify team
+1. `CI` validates typecheck + authz checks + tests + build.
+2. `Preview Deploy (Convex)` runs on PRs and deploys Convex preview backend when secrets are configured.
+3. `Deploy (Convex Production)` runs on `main` and deploys Convex production backend.
+4. Frontend deployment is handled by Vercel Git integration (or equivalent host pipeline).
 
 ## GitHub workflows
 
 - CI: `.github/workflows/ci.yml`
-- Preview deploys: `.github/workflows/preview-deploy.yml`
-- Production deploy: `.github/workflows/deploy.yml`
+- Preview Convex deploy: `.github/workflows/preview-deploy.yml`
+- Production Convex deploy: `.github/workflows/deploy.yml`
 
 ## Required secrets
 
-- Preview environment:
-  - `CONVEX_DEPLOY_KEY` (preview key)
-- Production environment:
-  - `CONVEX_DEPLOY_KEY` (production key)
-  - `NEXT_PUBLIC_CONVEX_URL` (production frontend Convex URL)
-  - `WORKOS_CLIENT_ID` and `WORKOS_API_KEY` (WorkOS AuthKit credentials)
-  - `WORKOS_COOKIE_PASSWORD` (session cookie encryption key)
-  - `NEXT_PUBLIC_WORKOS_REDIRECT_URI` (must match WorkOS callback URL)
-  - `CALENDARIFIC_API_KEY` (optional: enables religious observance imports)
+### Required for preview and production workflow runs
+
+- `CONVEX_DEPLOY_KEY` (environment-specific key)
+- `NEXT_PUBLIC_CONVEX_URL`
+- `WORKOS_CLIENT_ID`
+- `WORKOS_API_KEY`
+- `WORKOS_COOKIE_PASSWORD`
+- `NEXT_PUBLIC_WORKOS_REDIRECT_URI`
+
+### Optional
+
+- `CALENDARIFIC_API_KEY` (religious observance imports)
+- `SENTRY_DSN` (error monitoring)
 
 See `docs/runbooks/environment-variables.md` for environment matrix.
+
+## Frontend host requirements
+
+- Configure the same runtime variables on your frontend host (Vercel recommended).
+- Ensure callback URL (`NEXT_PUBLIC_WORKOS_REDIRECT_URI`) matches deployed frontend domain.
+- Set `NEXT_PUBLIC_CONVEX_URL` to the environment-specific Convex deployment URL.
 
 ## Required checks before production
 

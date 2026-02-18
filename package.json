@@ -1,5 +1,5 @@
 {
-  "name": "flex-template",
+  "name": "physician-clinical-scheduling-app",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -7,12 +7,18 @@
     "dev": "npm-run-all --parallel dev:frontend dev:backend",
     "dev:frontend": "next dev",
     "dev:backend": "convex dev",
+    "typecheck": "tsc -p convex -noEmit --pretty false && tsc -p . -noEmit --pretty false",
     "build": "next build",
     "start": "next start",
-    "lint": "tsc -p convex -noEmit --pretty false && tsc -p . -noEmit --pretty false && next build",
+    "lint": "npm run typecheck",
     "lint:convex": "convex dev --once",
     "test:authz": "bash scripts/verify-auth-guards.sh",
-    "test": "vitest run"
+    "test": "vitest run",
+    "check": "npm run typecheck && npm run test:authz && npm run test && npm run build"
+  },
+  "engines": {
+    "node": ">=20",
+    "npm": ">=10"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

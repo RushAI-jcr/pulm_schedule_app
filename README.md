@@ -1,45 +1,63 @@
-# Pulm Schedule App
+# Physician Clinical Scheduling App
 
 Physician clinical scheduling application built with Next.js (frontend) and Convex (backend).
 
-## Quick start
+## Prerequisites
 
-```bash
-npm install
-npm run dev
-```
+- Node.js `20.x` (`.nvmrc` is included)
+- npm `10+`
+- Convex project access
+- WorkOS AuthKit app credentials
 
-This starts both frontend and Convex development servers.
+## Local setup
+
+1. Install dependencies:
+   ```bash
+   npm install
+   ```
+2. Copy and populate environment variables:
+   ```bash
+   cp .env.example .env.local
+   ```
+3. Start frontend + backend:
+   ```bash
+   npm run dev
+   ```
+
+## Common commands
+
+- `npm run dev`: start Next.js + Convex dev servers
+- `npm run typecheck`: typecheck Convex + app code
+- `npm run test`: run unit tests (Vitest)
+- `npm run build`: production Next.js build
+- `npm run check`: CI-equivalent validation (typecheck + authz + tests + build)
+
+## GitHub CI/CD
+
+### Workflows
+
+- `.github/workflows/ci.yml`: validates every PR and push to `main`
+- `.github/workflows/preview-deploy.yml`: deploys preview Convex backend on PRs
+- `.github/workflows/deploy.yml`: deploys production Convex backend on `main`
+
+### Required GitHub secrets
+
+- `CONVEX_DEPLOY_KEY`
+- `NEXT_PUBLIC_CONVEX_URL`
+- `WORKOS_CLIENT_ID`
+- `WORKOS_API_KEY`
+- `WORKOS_COOKIE_PASSWORD`
+- `NEXT_PUBLIC_WORKOS_REDIRECT_URI`
+
+### Frontend hosting
+
+These GitHub workflows deploy Convex backend infrastructure. Host the Next.js frontend using Vercel Git integration (recommended) or your preferred Node host, and mirror the same runtime environment variables there.
 
 ## Repository layout
 
 - `src/`: React UI
-- `convex/`: Convex schema, queries, mutations, auth, HTTP routes
-- `docs/`: roadmap, sprint backlog, runbooks, and repo conventions
-- `.github/`: issue/PR templates and automation scaffolding
+- `convex/`: Convex schema, server functions, auth, HTTP router
+- `docs/`: runbooks, architecture, and planning docs
+- `.github/`: issue templates and CI/CD workflows
 
-See `docs/README.md` for full documentation map.
-
-## Product scope
-
-The app supports annual physician scheduling workflows:
-
-- viewer/physician/admin role management
-- fiscal year and week planning
-- preference collection (weeks, rotations)
-- cFTE planning and compliance
-- master calendar build/publish
-- trade/swap workflows
-- audit logging
-
-## Authentication
-
-Authentication uses WorkOS AuthKit (hosted sign-in/sign-up) with Convex custom JWT validation and physician profile linkage by email. Admin users may be physician-linked or non-physician accounts.
-
-## Docs
-
-- Sprint plan: `docs/sprints/roadmap.md`
-- Ticketized backlog: `docs/backlog/epics.md`
-- Sprint 0 execution details: `docs/backlog/sprint-0.md`
-- Deployment runbook: `docs/runbooks/deployment.md`
-- Local setup runbook: `docs/runbooks/local-development.md`
+See `docs/README.md` for the full documentation map.

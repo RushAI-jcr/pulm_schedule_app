@@ -13,7 +13,11 @@
 ## Preview / staging
 
 - `CONVEX_DEPLOY_KEY`: preview deploy key (preview environment only)
-- `NEXT_PUBLIC_CONVEX_URL`: set by deployment pipeline for preview backend
+- `NEXT_PUBLIC_CONVEX_URL`: preview Convex deployment URL
+- `WORKOS_CLIENT_ID`: preview WorkOS AuthKit client ID
+- `WORKOS_API_KEY`: preview WorkOS API key
+- `WORKOS_COOKIE_PASSWORD`: preview cookie encryption key
+- `NEXT_PUBLIC_WORKOS_REDIRECT_URI`: preview callback URL
 - `SENTRY_DSN`: staging DSN (if used)
 
 ## Production
@@ -33,3 +37,4 @@
 - Keep `.env.example` up to date.
 - Rotate deploy keys on credential exposure or operator turnover.
 - Use environment-scoped secrets in GitHub Actions.
+- Keep frontend host env vars in sync with GitHub workflow env vars.

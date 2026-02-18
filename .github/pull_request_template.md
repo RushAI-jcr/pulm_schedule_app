@@ -13,7 +13,7 @@
 
 ## Validation
 
-- [ ] `npm run lint`
+- [ ] `npm run check`
 - [ ] Additional tests run (describe below)
 
 ### Test Evidence

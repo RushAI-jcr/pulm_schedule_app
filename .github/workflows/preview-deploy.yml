@@ -1,7 +1,7 @@
-name: Preview Deploy
+name: Preview Deploy (Convex, Manual Only)
 
 on:
-  pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -19,13 +19,13 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version-file: ".nvmrc"
           cache: npm
 
       - name: Install
         run: npm ci
 
-      - name: Deploy preview backend + build
+      - name: Validate required preview secrets
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
           NEXT_PUBLIC_CONVEX_URL: ${{ secrets.NEXT_PUBLIC_CONVEX_URL }}
@@ -33,4 +33,35 @@ jobs:
           WORKOS_API_KEY: ${{ secrets.WORKOS_API_KEY }}
           WORKOS_COOKIE_PASSWORD: ${{ secrets.WORKOS_COOKIE_PASSWORD }}
           NEXT_PUBLIC_WORKOS_REDIRECT_URI: ${{ secrets.NEXT_PUBLIC_WORKOS_REDIRECT_URI }}
-        run: npx convex deploy --cmd 'npm run build'
+        run: |
+          missing=()
+          for key in \
+            CONVEX_DEPLOY_KEY \
+            NEXT_PUBLIC_CONVEX_URL \
+            WORKOS_CLIENT_ID \
+            WORKOS_API_KEY \
+            WORKOS_COOKIE_PASSWORD \
+            NEXT_PUBLIC_WORKOS_REDIRECT_URI; do
+            if [ -z "${!key:-}" ]; then
+              missing+=("$key")
+            fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "Missing required preview secrets: ${missing[*]}"
+            exit 1
+          fi
+
+      - name: Validate app
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+          NEXT_PUBLIC_CONVEX_URL: ${{ secrets.NEXT_PUBLIC_CONVEX_URL }}
+          WORKOS_CLIENT_ID: ${{ secrets.WORKOS_CLIENT_ID }}
+          WORKOS_API_KEY: ${{ secrets.WORKOS_API_KEY }}
+          WORKOS_COOKIE_PASSWORD: ${{ secrets.WORKOS_COOKIE_PASSWORD }}
+          NEXT_PUBLIC_WORKOS_REDIRECT_URI: ${{ secrets.NEXT_PUBLIC_WORKOS_REDIRECT_URI }}
+        run: npm run check
+
+      - name: Deploy preview backend
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+        run: npx convex deploy
