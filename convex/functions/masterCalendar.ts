@@ -1912,7 +1912,7 @@ export const getAutoFillDecisionLog = query({
     }),
   ),
   handler: async (ctx, args) => {
-    await requireAuthenticatedUser(ctx);
+    await requireAdmin(ctx);
     return await ctx.db
       .query("autoFillDecisionLog")
       .withIndex("by_calendar", (q) => q.eq("masterCalendarId", args.masterCalendarId))

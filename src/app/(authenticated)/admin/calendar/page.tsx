@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useRef } from "react"
 import { useQuery, useMutation } from "convex/react"
 import {
   Calendar,
@@ -32,7 +32,7 @@ import { cn } from "@/lib/utils"
 import { AutoFillConfigPanel } from "@/components/admin/auto-fill-config-panel"
 import { AutoFillMetricsCard } from "@/components/admin/auto-fill-metrics-card"
 import { AutoFillDecisionLog } from "@/components/admin/auto-fill-decision-log"
-import { getRotationAccent } from "@/components/calendar/calendar-legend"
+import { getRotationAccent } from "@/components/calendar/calendar-tokens"
 
 interface AutoFillMetrics {
   totalCells: number
@@ -45,6 +45,8 @@ interface AutoFillMetrics {
   workloadStdDev: number
 }
 
+type OpState = "idle" | "creating" | "auto_assigning" | "clearing" | "publishing"
+
 export default function MasterCalendarPage() {
   const data = useQuery(api.functions.masterCalendar.getCurrentFiscalYearMasterCalendarDraft)
   const createDraft = useMutation(api.functions.masterCalendar.createCurrentFiscalYearMasterCalendarDraft)
@@ -53,15 +55,20 @@ export default function MasterCalendarPage() {
   const clearAutoFilled = useMutation(api.functions.masterCalendar.clearAutoFilledAssignments)
   const publishDraft = useMutation(api.functions.masterCalendar.publishCurrentFiscalYearMasterCalendarDraft)
 
-  const [isCreating, setIsCreating] = useState(false)
-  const [isAutoAssigning, setIsAutoAssigning] = useState(false)
-  const [isClearing, setIsClearing] = useState(false)
+  const [opState, setOpState] = useState<OpState>("idle")
   const [publishDialogOpen, setPublishDialogOpen] = useState(false)
-  const [isPublishing, setIsPublishing] = useState(false)
   const [configOpen, setConfigOpen] = useState(false)
   const [decisionLogOpen, setDecisionLogOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [lastMetrics, setLastMetrics] = useState<AutoFillMetrics | null>(null)
+  const [cellPending, setCellPending] = useState<Set<string>>(new Set())
+  const cellPendingRef = useRef(new Set<string>())
+
+  const isCreating = opState === "creating"
+  const isAutoAssigning = opState === "auto_assigning"
+  const isClearing = opState === "clearing"
+  const isPublishing = opState === "publishing"
+  const isBusy = opState !== "idle"
 
   // Must be before any early returns to satisfy Rules of Hooks
   const availabilityMap = useMemo(() => {
@@ -117,19 +124,21 @@ export default function MasterCalendarPage() {
   }
 
   const handleCreateDraft = async () => {
-    setIsCreating(true)
+    if (opState !== "idle") return
+    setOpState("creating")
     setError(null)
     try {
       await createDraft({})
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create draft")
     } finally {
-      setIsCreating(false)
+      setOpState("idle")
     }
   }
 
   const handleAutoAssign = async () => {
-    setIsAutoAssigning(true)
+    if (opState !== "idle") return
+    setOpState("auto_assigning")
     setError(null)
     setLastMetrics(null)
     try {
@@ -140,12 +149,13 @@ export default function MasterCalendarPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Auto-assign failed")
     } finally {
-      setIsAutoAssigning(false)
+      setOpState("idle")
     }
   }
 
   const handleClearAutoFilled = async () => {
-    setIsClearing(true)
+    if (opState !== "idle") return
+    setOpState("clearing")
     setError(null)
     try {
       await clearAutoFilled({})
@@ -153,12 +163,13 @@ export default function MasterCalendarPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to clear auto-filled assignments")
     } finally {
-      setIsClearing(false)
+      setOpState("idle")
     }
   }
 
   const handlePublish = async () => {
-    setIsPublishing(true)
+    if (opState !== "idle") return
+    setOpState("publishing")
     setError(null)
     try {
       await publishDraft({})
@@ -166,11 +177,16 @@ export default function MasterCalendarPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Publish failed")
     } finally {
-      setIsPublishing(false)
+      setOpState("idle")
     }
   }
 
   const handleAssignCell = async (weekId: string, rotationId: string, physicianId: string | null) => {
+    if (opState !== "idle") return
+    const cellKey = `${weekId}:${rotationId}`
+    if (cellPendingRef.current.has(cellKey)) return
+    cellPendingRef.current.add(cellKey)
+    setCellPending(new Set(cellPendingRef.current))
     try {
       await assignCell({
         weekId: weekId as Id<"weeks">,
@@ -179,6 +195,9 @@ export default function MasterCalendarPage() {
       })
     } catch {
       // Error will show in Convex
+    } finally {
+      cellPendingRef.current.delete(cellKey)
+      setCellPending(new Set(cellPendingRef.current))
     }
   }
 
@@ -193,7 +212,7 @@ export default function MasterCalendarPage() {
         actions={
           <div className="flex items-center gap-2">
             {!hasDraft && (
-              <Button size="sm" onClick={handleCreateDraft} disabled={isCreating}>
+              <Button size="sm" onClick={handleCreateDraft} disabled={isBusy}>
                 {isCreating && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
                 <Plus className="mr-1 h-4 w-4" />
                 Create Draft
@@ -205,12 +224,12 @@ export default function MasterCalendarPage() {
                   <Settings2 className="mr-1 h-4 w-4" />
                   Settings
                 </Button>
-                <Button size="sm" variant="outline" onClick={handleAutoAssign} disabled={isAutoAssigning}>
+                <Button size="sm" variant="outline" onClick={handleAutoAssign} disabled={isBusy}>
                   {isAutoAssigning && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
                   <Wand2 className="mr-1 h-4 w-4" />
                   Auto-Fill
                 </Button>
-                <Button size="sm" variant="ghost" onClick={handleClearAutoFilled} disabled={isClearing}>
+                <Button size="sm" variant="ghost" onClick={handleClearAutoFilled} disabled={isBusy}>
                   {isClearing && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
                   <Undo2 className="mr-1 h-4 w-4" />
                   Undo Auto
@@ -221,7 +240,7 @@ export default function MasterCalendarPage() {
                 </Button>
                 <Dialog open={publishDialogOpen} onOpenChange={setPublishDialogOpen}>
                   <DialogTrigger asChild>
-                    <Button size="sm">
+                    <Button size="sm" disabled={isBusy}>
                       <Upload className="mr-1 h-4 w-4" />
                       Publish
                     </Button>
@@ -235,7 +254,7 @@ export default function MasterCalendarPage() {
                     </DialogHeader>
                     <DialogFooter>
                       <Button variant="outline" onClick={() => setPublishDialogOpen(false)}>Cancel</Button>
-                      <Button onClick={handlePublish} disabled={isPublishing}>
+                      <Button onClick={handlePublish} disabled={isBusy}>
                         {isPublishing && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
                         Publish
                       </Button>
@@ -266,7 +285,7 @@ export default function MasterCalendarPage() {
             title="No draft calendar"
             description="Create a draft to start building the master calendar."
             action={
-              <Button onClick={handleCreateDraft} disabled={isCreating}>
+              <Button onClick={handleCreateDraft} disabled={isBusy}>
                 <Plus className="mr-1 h-4 w-4" />
                 Create Draft
               </Button>
@@ -392,6 +411,9 @@ export default function MasterCalendarPage() {
                           ? data.physicians.find((p) => String(p._id) === currentPhysicianId)
                           : null
 
+                        const cellKey = `${String(weekRow.weekId)}:${String(rotation._id)}`
+                        const isCellPending = cellPending.has(cellKey)
+
                         return (
                           <div
                             key={weekRow.weekNumber}
@@ -428,7 +450,7 @@ export default function MasterCalendarPage() {
                                     e.target.value || null,
                                   )
                                 }
-                                disabled={!isDraft}
+                                disabled={!isDraft || isBusy || isCellPending}
                                 aria-label={`${rotation.abbreviation} week ${weekRow.weekNumber}`}
                               >
                                 <option value="">—</option>

@@ -2,7 +2,7 @@
 
 import { useMemo } from "react"
 import { cn } from "@/lib/utils"
-import { getRotationAccent } from "./calendar-legend"
+import { getRotationAccent } from "./calendar-tokens"
 import {
   buildMonthGrid,
   deriveFiscalMonths,
@@ -11,6 +11,7 @@ import {
   toISODate,
   isSameDay,
   type GridRow,
+  type EventCategory,
 } from "./calendar-grid-utils"
 import { useToday } from "@/hooks/use-today"
 import type { Id } from "../../../convex/_generated/dataModel"
@@ -25,7 +26,7 @@ type CalendarEvent = {
   weekId: Id<"weeks">
   date: string
   name: string
-  category: string
+  category: EventCategory
 }
 
 const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]

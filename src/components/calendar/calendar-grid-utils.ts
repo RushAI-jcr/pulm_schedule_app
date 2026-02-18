@@ -7,6 +7,14 @@
 // Types
 // ────────────────────────────────────────────────────────────────────────────
 
+/** Known calendar event categories. */
+export type EventCategory =
+  | "federal_holiday"
+  | "religious_observance"
+  | "cultural_observance"
+  | "conference"
+  | "other"
+
 export interface GridCell {
   rotationId: string
   assignmentId?: string | null

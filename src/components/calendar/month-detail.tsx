@@ -4,7 +4,7 @@ import { useMemo } from "react"
 import { ChevronLeft, ChevronRight } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/shared/components/ui/button"
-import { getRotationAccent } from "./calendar-legend"
+import { getRotationAccent } from "./calendar-tokens"
 import type { Id } from "../../../convex/_generated/dataModel"
 import {
   buildMonthGrid,
@@ -14,6 +14,7 @@ import {
   toISODate,
   isSameDay,
   type GridRow,
+  type EventCategory,
 } from "./calendar-grid-utils"
 import { useToday } from "@/hooks/use-today"
 
@@ -27,7 +28,7 @@ type CalendarEvent = {
   weekId: Id<"weeks">
   date: string
   name: string
-  category: string
+  category: EventCategory
 }
 
 const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
