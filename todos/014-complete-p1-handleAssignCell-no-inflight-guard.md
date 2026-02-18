@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p1
 issue_id: "014"
 tags: [code-review, admin-calendar, frontend-race, mutation]
