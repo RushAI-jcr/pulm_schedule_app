@@ -149,6 +149,29 @@ export const getWeeksByFiscalYear = query({
   },
 });
 
+export const getWeekByNumber = query({
+  args: { fiscalYearId: v.id("fiscalYears"), weekNumber: v.number() },
+  returns: v.union(
+    v.null(),
+    v.object({
+      _id: v.id("weeks"),
+      fiscalYearId: v.id("fiscalYears"),
+      weekNumber: v.number(),
+      startDate: v.string(),
+      endDate: v.string(),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    await requireAuthenticatedUser(ctx);
+    return await ctx.db
+      .query("weeks")
+      .withIndex("by_fiscalYear_weekNumber", (q) =>
+        q.eq("fiscalYearId", args.fiscalYearId).eq("weekNumber", args.weekNumber),
+      )
+      .first() ?? null;
+  },
+});
+
 export const createFiscalYear = mutation({
   args: {
     label: v.string(),

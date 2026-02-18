@@ -11,7 +11,7 @@ export default async function HomePage() {
 
   return (
     <main className="relative min-h-screen bg-gray-50 dark:bg-slate-950 flex items-center justify-center px-6 py-12">
-      <div className="absolute right-6 top-6">
+      <div className="fixed top-6 right-6 z-50">
         <ThemeToggle />
       </div>
       <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-8 space-y-5">

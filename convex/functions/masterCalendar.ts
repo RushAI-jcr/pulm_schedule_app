@@ -1309,26 +1309,19 @@ export const assignCurrentFiscalYearDraftCell = mutation({
       throw new Error(`Invalid physician selected: physicianId ${args.physicianId}`);
     }
 
-    // Check physician active date range
+    // Check physician active date range (ISO date strings, fiscal-year-agnostic)
     if (args.physicianId && physician) {
-      if (physician.activeFromWeekId) {
-        const activeFromWeek = await ctx.db.get(physician.activeFromWeekId);
-        if (activeFromWeek && week.weekNumber < activeFromWeek.weekNumber) {
-          throw new Error(
-            `${physician.initials} is not active until week ${activeFromWeek.weekNumber}. ` +
-            `Cannot assign to week ${week.weekNumber}.`
-          );
-        }
+      if (physician.activeFromDate && week.startDate < physician.activeFromDate) {
+        throw new Error(
+          `${physician.initials} is not active until ${physician.activeFromDate}. ` +
+          `Cannot assign to week starting ${week.startDate}.`
+        );
       }
-
-      if (physician.activeUntilWeekId) {
-        const activeUntilWeek = await ctx.db.get(physician.activeUntilWeekId);
-        if (activeUntilWeek && week.weekNumber > activeUntilWeek.weekNumber) {
-          throw new Error(
-            `${physician.initials} was deactivated after week ${activeUntilWeek.weekNumber}. ` +
-            `Cannot assign to week ${week.weekNumber}.`
-          );
-        }
+      if (physician.activeUntilDate && week.endDate > physician.activeUntilDate) {
+        throw new Error(
+          `${physician.initials} was deactivated after ${physician.activeUntilDate}. ` +
+          `Cannot assign to week ending ${week.endDate}.`
+        );
       }
     }
 
@@ -1616,11 +1609,21 @@ export const autoAssignCurrentFiscalYearDraft = mutation({
       autoFillPrefMap.set(pid, converted);
     }
 
+    // Load physician-rotation consecutive week overrides from DB
+    const physicianRotationRules = await ctx.db
+      .query("physicianRotationRules")
+      .withIndex("by_fiscalYear", (q) => q.eq("fiscalYearId", fiscalYear._id))
+      .collect();
+    const physicianRotationRulesMap = new Map<string, number>(
+      physicianRotationRules.map((r) => [`${String(r.physicianId)}:${String(r.rotationId)}`, r.maxConsecutiveWeeks])
+    );
+
     // Run the multi-pass constraint solver
     const result = runAutoFill({
       weeks: weeks.map((w) => ({
         _id: String(w._id),
         weekNumber: w.weekNumber,
+        startDate: w.startDate,
       })),
       rotations: activeRotations.map((r) => ({
         _id: String(r._id),
@@ -1636,8 +1639,8 @@ export const autoAssignCurrentFiscalYearDraft = mutation({
         _id: String(p._id),
         initials: p.initials,
         isActive: p.isActive,
-        activeFromWeekId: p.activeFromWeekId ? String(p.activeFromWeekId) : undefined,
-        activeUntilWeekId: p.activeUntilWeekId ? String(p.activeUntilWeekId) : undefined,
+        activeFromDate: p.activeFromDate,
+        activeUntilDate: p.activeUntilDate,
       })),
       existingAssignments: assignments.map((a) => ({
         _id: String(a._id),
@@ -1654,6 +1657,7 @@ export const autoAssignCurrentFiscalYearDraft = mutation({
       parityScores,
       config,
       fiscalYearId: String(fiscalYear._id),
+      physicianRotationRulesMap,
     });
 
     // Apply solver results to the database

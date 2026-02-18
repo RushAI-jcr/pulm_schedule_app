@@ -3,7 +3,7 @@ import { wouldExceedMaxConsecutiveWeeks } from "./masterCalendarAssignments";
 import type { AutoFillConfig, RotationPreference, ScoredCandidate, ScoreBreakdown } from "./autoFill";
 import { buildWeekToPhysicianMap, hasWeekConflict, seededShuffle, createSeededRng, hashStringToSeed } from "./autoFill";
 import { scoreCandidate } from "./autoFillScorer";
-import { getPhysicianMaxConsecutiveWeeks } from "./physicianConsecutiveWeekRules";
+
 
 // ========================================
 // Multi-pass auto-fill constraint solver
@@ -59,14 +59,15 @@ export interface RotationDoc {
 export interface WeekDoc {
   _id: string;
   weekNumber: number;
+  startDate: string;
 }
 
 export interface PhysicianDoc {
   _id: string;
   initials: string;
   isActive: boolean;
-  activeFromWeekId?: string;
-  activeUntilWeekId?: string;
+  activeFromDate?: string;
+  activeUntilDate?: string;
 }
 
 export interface ExistingAssignment {
@@ -90,6 +91,8 @@ export interface RunAutoFillParams {
   parityScores: Map<string, Map<string, number>>;
   config: AutoFillConfig;
   fiscalYearId: string;
+  /** "physicianId:rotationId" → maxConsecutiveWeeks. Loaded from DB, replaces hardcoded rules. */
+  physicianRotationRulesMap?: Map<string, number>;
 }
 
 /**
@@ -114,6 +117,7 @@ export function runAutoFill(params: RunAutoFillParams): AutoFillResult {
     config,
     fiscalYearId,
   } = params;
+  const physicianRotationRulesMap = params.physicianRotationRulesMap ?? new Map<string, number>();
 
   const activePhysicians = physicians.filter((p) => p.isActive);
   const activeRotations = rotations.filter((r) => r.isActive);
@@ -130,6 +134,7 @@ export function runAutoFill(params: RunAutoFillParams): AutoFillResult {
 
   const allWeekNumbers = weeks.map((w) => w.weekNumber).sort((a, b) => a - b);
   const weekNumberById = new Map(weeks.map((w) => [w._id, w.weekNumber]));
+  const weekById = new Map(weeks.map((w) => [w._id, w]));
   const rotationsById = new Map(activeRotations.map((r) => [r._id, r]));
   const physiciansById = new Map(activePhysicians.map((p) => [p._id, p]));
 
@@ -147,6 +152,7 @@ export function runAutoFill(params: RunAutoFillParams): AutoFillResult {
 
   const resultAssignments: AutoFillAssignment[] = [];
   const unfilled: UnfilledCell[] = [];
+  const filledCellKeys = new Set<string>();
 
   // ========================================
   // Pass 1: Scored fill with shuffled order
@@ -176,11 +182,13 @@ export function runAutoFill(params: RunAutoFillParams): AutoFillResult {
       state,
       allWeekNumbers,
       weeks,
+      weekById,
       config,
       parityScores,
       totalPhysicians,
       totalWeeksToFill,
       avgTargetCfte,
+      physicianRotationRulesMap,
     });
 
     if (scored.length === 0) continue;
@@ -188,6 +196,7 @@ export function runAutoFill(params: RunAutoFillParams): AutoFillResult {
     // Select highest scoring candidate
     const best = scored[0];
     applyAssignment(state, cell, best, rotation, weekNumber);
+    filledCellKeys.add(`${cell.weekId}:${cell.rotationId}`);
     resultAssignments.push({
       weekId: cell.weekId,
       rotationId: cell.rotationId,
@@ -203,7 +212,7 @@ export function runAutoFill(params: RunAutoFillParams): AutoFillResult {
   // ========================================
 
   const remainingCells = state.emptyCells.filter(
-    (c) => !resultAssignments.some((a) => a.weekId === c.weekId && a.rotationId === c.rotationId),
+    (c) => !filledCellKeys.has(`${c.weekId}:${c.rotationId}`),
   );
 
   for (const cell of remainingCells) {
@@ -228,6 +237,8 @@ export function runAutoFill(params: RunAutoFillParams): AutoFillResult {
       state,
       allWeekNumbers,
       weeks,
+      weekById,
+      physicianRotationRulesMap,
     });
 
     if (candidates.length === 0) {
@@ -281,6 +292,10 @@ export function runAutoFill(params: RunAutoFillParams): AutoFillResult {
   // Pass 3: Hill-climbing swap optimization
   // ========================================
 
+  const existingByCell = new Map(
+    existingAssignments.map((e) => [`${e.weekId}:${e.rotationId}`, e]),
+  );
+
   let improved = true;
   let iterations = 0;
 
@@ -292,18 +307,14 @@ export function runAutoFill(params: RunAutoFillParams): AutoFillResult {
       const a1 = resultAssignments[i];
 
       // Don't swap anchored (manually-placed) assignments
-      const existingA1 = existingAssignments.find(
-        (e) => e.weekId === a1.weekId && e.rotationId === a1.rotationId,
-      );
+      const existingA1 = existingByCell.get(`${a1.weekId}:${a1.rotationId}`);
       if (existingA1?.physicianId && existingA1.assignmentSource !== "auto") continue;
 
       for (let j = i + 1; j < resultAssignments.length; j++) {
         const a2 = resultAssignments[j];
 
         // Don't swap anchored assignments
-        const existingA2 = existingAssignments.find(
-          (e) => e.weekId === a2.weekId && e.rotationId === a2.rotationId,
-        );
+        const existingA2 = existingByCell.get(`${a2.weekId}:${a2.rotationId}`);
         if (existingA2?.physicianId && existingA2.assignmentSource !== "auto") continue;
 
         // Skip if same physician (no point swapping)
@@ -514,11 +525,13 @@ function getHardConstraintCandidates(params: {
   state: SolverState;
   allWeekNumbers: number[];
   weeks: WeekDoc[];
+  weekById: Map<string, WeekDoc>;
+  physicianRotationRulesMap: Map<string, number>;
 }): HardConstraintCandidate[] {
   const {
     cell, rotation, weekNumber, activePhysicians,
     availabilityMap, preferenceMap, targetCfteMap, clinicCfteMap,
-    state, allWeekNumbers, weeks,
+    state, allWeekNumbers,
   } = params;
 
   const candidates: HardConstraintCandidate[] = [];
@@ -530,14 +543,11 @@ function getHardConstraintCandidates(params: {
     const availability = getAvailability(availabilityMap, pid, cell.weekId);
     if (availability === "red") continue;
 
-    // Hard constraint 1.5: Physician active date range
-    if (physician.activeFromWeekId) {
-      const activeFromWeek = weeks.find((w) => w._id === physician.activeFromWeekId);
-      if (activeFromWeek && weekNumber < activeFromWeek.weekNumber) continue;
-    }
-    if (physician.activeUntilWeekId) {
-      const activeUntilWeek = weeks.find((w) => w._id === physician.activeUntilWeekId);
-      if (activeUntilWeek && weekNumber > activeUntilWeek.weekNumber) continue;
+    // Hard constraint 1.5: Physician active date range (ISO date comparison, survives FY rollover)
+    const currentWeek = params.weekById.get(cell.weekId);
+    if (currentWeek) {
+      if (physician.activeFromDate && currentWeek.startDate < physician.activeFromDate) continue;
+      if (physician.activeUntilDate && currentWeek.startDate > physician.activeUntilDate) continue;
     }
 
     // Hard constraint 2: Avoid rotation = blocked
@@ -557,12 +567,10 @@ function getHardConstraintCandidates(params: {
     const assignedWeekNumbers = getAssignedWeekNumbersForRotation(
       state, pid, cell.rotationId,
     );
-    // Get physician-specific max consecutive (e.g., JG prefers 2 weeks for MICU, WL for ROPH)
-    const physicianMaxConsecutive = getPhysicianMaxConsecutiveWeeks(
-      physician.initials,
-      rotation.abbreviation,
-      rotation.maxConsecutiveWeeks,
-    );
+    // Physician-specific max consecutive override (DB-loaded, falls back to rotation default)
+    const physicianMaxConsecutive =
+      params.physicianRotationRulesMap.get(`${pid}:${cell.rotationId}`) ??
+      rotation.maxConsecutiveWeeks;
     if (wouldExceedMaxConsecutiveWeeks({
       allWeekNumbers,
       assignedWeekNumbers,
@@ -596,23 +604,28 @@ function scoreCandidatesForCell(params: {
   state: SolverState;
   allWeekNumbers: number[];
   weeks: WeekDoc[];
+  weekById: Map<string, WeekDoc>;
   config: AutoFillConfig;
   parityScores: Map<string, Map<string, number>>;
   totalPhysicians: number;
   totalWeeksToFill: number;
   avgTargetCfte: number;
+  physicianRotationRulesMap: Map<string, number>;
 }): ScoredCandidate[] {
   const {
     cell, rotation, weekNumber, weekHolidays,
     activePhysicians, availabilityMap, preferenceMap,
     targetCfteMap, clinicCfteMap, state, allWeekNumbers, weeks,
     config, parityScores, totalPhysicians, totalWeeksToFill, avgTargetCfte,
+    physicianRotationRulesMap,
   } = params;
 
   const hardCandidates = getHardConstraintCandidates({
     cell, rotation, weekNumber, activePhysicians,
     availabilityMap, preferenceMap, targetCfteMap, clinicCfteMap,
     state, allWeekNumbers, weeks,
+    weekById: params.weekById,
+    physicianRotationRulesMap,
   });
 
   const scored: ScoredCandidate[] = hardCandidates.map((c) =>

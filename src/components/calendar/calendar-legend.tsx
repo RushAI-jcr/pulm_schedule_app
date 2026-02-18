@@ -8,22 +8,28 @@ type Rotation = {
   abbreviation: string
 }
 
-// Deterministic rotation colors from a curated palette
-const ROTATION_COLORS = [
-  "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300",
-  "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300",
-  "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300",
-  "bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-300",
-  "bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300",
-  "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/40 dark:text-cyan-300",
-  "bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300",
-  "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-300",
-  "bg-teal-100 text-teal-800 dark:bg-teal-900/40 dark:text-teal-300",
-  "bg-pink-100 text-pink-800 dark:bg-pink-900/40 dark:text-pink-300",
+export type RotationAccent = {
+  borderL: string    // border-l color class, e.g. "border-teal-400"
+  dot: string        // dot bg class, e.g. "bg-teal-400"
+  subtleBg: string   // very light bg for pills
+}
+
+// Muted, desaturated accent palette — monochrome base + one hue per rotation
+const ROTATION_ACCENTS: RotationAccent[] = [
+  { borderL: "border-teal-400",    dot: "bg-teal-400",    subtleBg: "bg-teal-50 dark:bg-teal-950/30"      },
+  { borderL: "border-violet-400",  dot: "bg-violet-400",  subtleBg: "bg-violet-50 dark:bg-violet-950/30"  },
+  { borderL: "border-amber-400",   dot: "bg-amber-400",   subtleBg: "bg-amber-50 dark:bg-amber-950/30"    },
+  { borderL: "border-rose-400",    dot: "bg-rose-400",    subtleBg: "bg-rose-50 dark:bg-rose-950/30"      },
+  { borderL: "border-sky-400",     dot: "bg-sky-400",     subtleBg: "bg-sky-50 dark:bg-sky-950/30"        },
+  { borderL: "border-emerald-400", dot: "bg-emerald-400", subtleBg: "bg-emerald-50 dark:bg-emerald-950/30" },
+  { borderL: "border-orange-400",  dot: "bg-orange-400",  subtleBg: "bg-orange-50 dark:bg-orange-950/30"  },
+  { borderL: "border-indigo-400",  dot: "bg-indigo-400",  subtleBg: "bg-indigo-50 dark:bg-indigo-950/30"  },
+  { borderL: "border-fuchsia-400", dot: "bg-fuchsia-400", subtleBg: "bg-fuchsia-50 dark:bg-fuchsia-950/30" },
+  { borderL: "border-lime-500",    dot: "bg-lime-500",    subtleBg: "bg-lime-50 dark:bg-lime-950/30"      },
 ]
 
-export function getRotationColor(index: number): string {
-  return ROTATION_COLORS[index % ROTATION_COLORS.length]
+export function getRotationAccent(index: number): RotationAccent {
+  return ROTATION_ACCENTS[index % ROTATION_ACCENTS.length]
 }
 
 export function CalendarLegend({ rotations }: { rotations: Rotation[] }) {
@@ -31,18 +37,19 @@ export function CalendarLegend({ rotations }: { rotations: Rotation[] }) {
 
   return (
     <div className="flex flex-wrap gap-2">
-      {rotations.map((rotation, index) => (
-        <span
-          key={rotation._id}
-          className={cn(
-            "inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium",
-            getRotationColor(index)
-          )}
-        >
-          <span className="font-bold">{rotation.abbreviation}</span>
-          <span className="hidden sm:inline">{rotation.name}</span>
-        </span>
-      ))}
+      {rotations.map((rotation, index) => {
+        const accent = getRotationAccent(index)
+        return (
+          <span
+            key={rotation._id}
+            className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium bg-card border border-border/60"
+          >
+            <span className={cn("h-2 w-2 rounded-full shrink-0", accent.dot)} />
+            <span className="font-semibold text-foreground">{rotation.abbreviation}</span>
+            <span className="text-muted-foreground hidden sm:inline">{rotation.name}</span>
+          </span>
+        )
+      })}
     </div>
   )
 }

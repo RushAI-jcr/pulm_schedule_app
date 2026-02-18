@@ -3,22 +3,19 @@
 import { useMemo } from "react"
 import { ChevronLeft, ChevronRight } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { Button } from "@/components/ui/button"
-import { getRotationColor } from "./calendar-legend"
+import { Button } from "@/shared/components/ui/button"
+import { getRotationAccent } from "./calendar-legend"
 import type { Id } from "../../../convex/_generated/dataModel"
-
-type GridRow = {
-  weekId: Id<"weeks">
-  weekNumber: number
-  startDate: string
-  endDate: string
-  cells: Array<{
-    rotationId: Id<"rotations">
-    physicianId: Id<"physicians"> | null
-    physicianName: string | null
-    physicianInitials: string | null
-  }>
-}
+import {
+  buildMonthGrid,
+  inferYearForMonth,
+  deriveFiscalMonths,
+  toLocalDate,
+  toISODate,
+  isSameDay,
+  type GridRow,
+} from "./calendar-grid-utils"
+import { useToday } from "@/hooks/use-today"
 
 type Rotation = {
   _id: Id<"rotations">
@@ -33,20 +30,14 @@ type CalendarEvent = {
   category: string
 }
 
-function getMonthYear(dateStr: string): { month: number; year: number; label: string } {
-  const d = new Date(dateStr + "T00:00:00")
-  return {
-    month: d.getMonth(),
-    year: d.getFullYear(),
-    label: d.toLocaleDateString("en-US", { month: "long", year: "numeric" }),
-  }
-}
+const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 export function MonthDetail({
   grid,
   rotations,
   events,
   physicianId,
+  visibleRotationIds,
   activeMonth,
   onMonthChange,
   onBackToYear,
@@ -55,134 +46,237 @@ export function MonthDetail({
   rotations: Rotation[]
   events: CalendarEvent[]
   physicianId: Id<"physicians"> | null
-  activeMonth: number // 0-11
+  visibleRotationIds?: Set<string> | null
+  activeMonth: number
   onMonthChange: (month: number) => void
   onBackToYear: () => void
 }) {
-  // Filter weeks whose start date falls in the active month
-  const { monthWeeks, monthLabel, monthEvents } = useMemo(() => {
-    const filtered = grid.filter((row) => {
-      const { month } = getMonthYear(row.startDate)
-      return month === activeMonth
-    })
+  const today = useToday()
 
-    const label = filtered.length > 0
-      ? getMonthYear(filtered[0].startDate).label
-      : new Date(2026, activeMonth, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" })
+  const activeYear = useMemo(
+    () => inferYearForMonth(activeMonth, grid),
+    [activeMonth, grid]
+  )
 
-    const weekIds = new Set(filtered.map((w) => String(w.weekId)))
-    const filteredEvents = events.filter((e) => weekIds.has(String(e.weekId)))
+  const calendarWeeks = useMemo(
+    () => buildMonthGrid(activeYear, activeMonth, grid),
+    [activeYear, activeMonth, grid]
+  )
 
-    return { monthWeeks: filtered, monthLabel: label, monthEvents: filteredEvents }
-  }, [grid, events, activeMonth])
-
-  const eventsByWeek = useMemo(() => {
+  const eventsByDate = useMemo(() => {
     const map = new Map<string, CalendarEvent[]>()
-    for (const event of monthEvents) {
-      const key = String(event.weekId)
-      if (!map.has(key)) map.set(key, [])
-      map.get(key)!.push(event)
+    for (const event of events) {
+      if (!map.has(event.date)) map.set(event.date, [])
+      map.get(event.date)!.push(event)
     }
     return map
-  }, [monthEvents])
+  }, [events])
 
-  const prevMonth = activeMonth === 0 ? 11 : activeMonth - 1
-  const nextMonth = activeMonth === 11 ? 0 : activeMonth + 1
+  const monthLabel = new Date(activeYear, activeMonth, 1).toLocaleDateString("en-US", {
+    month: "long",
+    year: "numeric",
+  })
+
+  const fiscalMonths = useMemo(() => deriveFiscalMonths(grid), [grid])
+
+  const currentIndex = fiscalMonths.findIndex(
+    (m) => m.month === activeMonth && m.year === activeYear
+  )
+  const prevEntry = currentIndex > 0 ? fiscalMonths[currentIndex - 1] : null
+  const nextEntry =
+    currentIndex < fiscalMonths.length - 1 ? fiscalMonths[currentIndex + 1] : null
 
   return (
     <div className="space-y-4">
-      {/* Month navigation */}
+      {/* Navigation */}
       <div className="flex items-center justify-between">
-        <Button variant="ghost" size="sm" onClick={onBackToYear}>
-          Year View
+        <Button variant="ghost" size="sm" onClick={onBackToYear} className="text-muted-foreground">
+          ← Year
         </Button>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => onMonthChange(prevMonth)}>
+          <Button
+            variant="outline"
+            size="icon"
+            className="h-8 w-8"
+            onClick={() => prevEntry && onMonthChange(prevEntry.month)}
+            disabled={!prevEntry}
+          >
             <ChevronLeft className="h-4 w-4" />
           </Button>
-          <h3 className="text-lg font-semibold min-w-[180px] text-center">{monthLabel}</h3>
-          <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => onMonthChange(nextMonth)}>
+          <h3 className="text-base font-semibold min-w-[160px] text-center">{monthLabel}</h3>
+          <Button
+            variant="outline"
+            size="icon"
+            className="h-8 w-8"
+            onClick={() => nextEntry && onMonthChange(nextEntry.month)}
+            disabled={!nextEntry}
+          >
             <ChevronRight className="h-4 w-4" />
           </Button>
         </div>
-        <div className="w-[72px]" /> {/* spacer for centering */}
+        <div className="w-16" />
       </div>
 
-      {monthWeeks.length === 0 ? (
-        <p className="text-sm text-muted-foreground text-center py-8">
-          No weeks in this month.
-        </p>
-      ) : (
-        <div className="space-y-3">
-          {monthWeeks.map((row) => {
-            const weekEvents = eventsByWeek.get(String(row.weekId)) ?? []
+      {/* Calendar grid */}
+      <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
+        {/* Day-of-week header */}
+        <div className="grid grid-cols-7 border-b bg-muted/30">
+          {DAY_LABELS.map((label) => (
+            <div
+              key={label}
+              className="py-2 text-center text-xs font-semibold text-muted-foreground tracking-wide"
+            >
+              {label}
+            </div>
+          ))}
+        </div>
 
+        {/* Week rows */}
+        {calendarWeeks.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-10">
+            No weeks found for this month.
+          </p>
+        ) : (
+          calendarWeeks.map(({ days, gridRow }, weekIdx) => {
+            const isCurrentWeek = days.some((d) => isSameDay(d, today))
             return (
-              <div key={row.weekNumber} className="rounded-lg border p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-sm font-semibold">Week {row.weekNumber}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {row.startDate} – {row.endDate}
-                  </span>
-                </div>
-
-                {/* Events for this week */}
-                {weekEvents.length > 0 && (
-                  <div className="flex flex-wrap gap-1 mb-3">
-                    {weekEvents.map((e, i) => (
-                      <span
-                        key={i}
-                        className={cn(
-                          "text-xs px-2 py-0.5 rounded-md",
-                          e.category === "federal_holiday"
-                            ? "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300"
-                            : e.category === "conference"
-                              ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
-                              : "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300"
-                        )}
-                      >
-                        {e.name}
-                      </span>
-                    ))}
-                  </div>
+              <div
+                key={weekIdx}
+                className={cn(
+                  "border-b last:border-0",
+                  isCurrentWeek && "bg-primary/5"
                 )}
-
-                {/* Rotation assignments */}
-                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                  {row.cells.map((cell) => {
-                    const rotation = rotations.find(
-                      (r) => String(r._id) === String(cell.rotationId)
-                    )
-                    if (!rotation) return null
-                    const rotIdx = rotations.indexOf(rotation)
-                    const isMe = physicianId && String(cell.physicianId) === String(physicianId)
-                    const dimmed = physicianId && !isMe
+              >
+                {/* Day number row */}
+                <div className="grid grid-cols-7">
+                  {days.map((day, dayIdx) => {
+                    const inMonth = day.getMonth() === activeMonth
+                    const isToday = isSameDay(day, today)
+                    const dateStr = toISODate(day)
+                    const dayEvents = eventsByDate.get(dateStr) ?? []
 
                     return (
                       <div
-                        key={String(cell.rotationId)}
+                        key={dayIdx}
                         className={cn(
-                          "flex items-center gap-2 rounded-md px-3 py-2 text-sm",
-                          getRotationColor(rotIdx),
-                          dimmed && "opacity-30"
+                          "relative px-2 pt-2 pb-1 min-h-[3rem]",
+                          dayIdx < 6 && "border-r border-border/30",
+                          !inMonth && "bg-muted/20"
                         )}
                       >
-                        <span className="font-bold">{rotation.abbreviation}</span>
-                        <span className="truncate">
-                          {cell.physicianName ?? "Unassigned"}
+                        <span
+                          className={cn(
+                            "inline-flex h-7 w-7 items-center justify-center rounded-full text-sm font-medium",
+                            isToday &&
+                              "bg-primary text-primary-foreground font-semibold shadow-sm ring-2 ring-primary/30 ring-offset-1",
+                            !isToday && inMonth && "text-foreground",
+                            !isToday && !inMonth && "text-muted-foreground/35"
+                          )}
+                        >
+                          {day.getDate()}
                         </span>
-                        {isMe && (
-                          <span className="ml-auto text-[10px] font-semibold uppercase">You</span>
+                        {/* Event dots */}
+                        {dayEvents.length > 0 && (
+                          <div className="absolute bottom-1 left-0 right-0 flex justify-center gap-0.5">
+                            {dayEvents.map((e, ei) => (
+                              <span
+                                key={ei}
+                                title={e.name}
+                                className={cn(
+                                  "h-1.5 w-1.5 rounded-full",
+                                  e.category === "federal_holiday"
+                                    ? "bg-rose-500"
+                                    : e.category === "conference"
+                                      ? "bg-sky-500"
+                                      : "bg-amber-500"
+                                )}
+                              />
+                            ))}
+                          </div>
                         )}
                       </div>
                     )
                   })}
                 </div>
+
+                {/* Assignment pills row — spans full week */}
+                {gridRow ? (
+                  <div className="px-3 pb-3 pt-1">
+                    <div className="flex flex-wrap gap-1.5">
+                      {gridRow.cells
+                        .filter(
+                          (cell) =>
+                            !visibleRotationIds ||
+                            visibleRotationIds.has(String(cell.rotationId))
+                        )
+                        .map((cell) => {
+                          const rotIdx = rotations.findIndex(
+                            (r) => String(r._id) === String(cell.rotationId)
+                          )
+                          if (rotIdx === -1) return null
+                          const rotation = rotations[rotIdx]
+                          const accent = getRotationAccent(rotIdx)
+                          const isMe =
+                            !!physicianId &&
+                            String(cell.physicianId) === String(physicianId)
+                          const dimmed = !!physicianId && !isMe
+
+                          return (
+                            <div
+                              key={String(cell.rotationId)}
+                              className={cn(
+                                "inline-flex items-center gap-1.5 border-l-[3px] rounded-sm px-2 py-0.5 text-xs font-medium transition-opacity",
+                                accent.borderL,
+                                accent.subtleBg,
+                                dimmed && "opacity-25"
+                              )}
+                            >
+                              <span className="font-semibold text-foreground">
+                                {rotation.abbreviation}
+                              </span>
+                              <span className="text-muted-foreground">
+                                {cell.physicianInitials ?? "–"}
+                              </span>
+                              {isMe && (
+                                <span className={cn("h-1.5 w-1.5 rounded-full", accent.dot)} />
+                              )}
+                            </div>
+                          )
+                        })}
+                    </div>
+                    {/* Holiday names for this week */}
+                    {days.some((d) => (eventsByDate.get(toISODate(d)) ?? []).length > 0) && (
+                      <div className="mt-1.5 flex flex-wrap gap-1">
+                        {days.flatMap((d) =>
+                          (eventsByDate.get(toISODate(d)) ?? []).map((e, i) => (
+                            <span
+                              key={`${toISODate(d)}-${i}`}
+                              className={cn(
+                                "text-[10px] px-2 py-0.5 rounded-full font-medium",
+                                e.category === "federal_holiday"
+                                  ? "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300"
+                                  : e.category === "conference"
+                                    ? "bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300"
+                                    : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+                              )}
+                            >
+                              {e.name}
+                            </span>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="px-3 pb-3 pt-1">
+                    <p className="text-xs text-muted-foreground/50 italic">No assignments</p>
+                  </div>
+                )}
               </div>
             )
-          })}
-        </div>
-      )}
+          })
+        )}
+      </div>
     </div>
   )
 }

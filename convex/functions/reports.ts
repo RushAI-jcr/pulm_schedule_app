@@ -46,15 +46,40 @@ async function getCalendarAndAssignments(
 // 1. Holiday Coverage Report
 // ========================================
 
+const holidayCoverageRow = v.object({
+  fiscalYearId: v.string(),
+  fiscalYearLabel: v.string(),
+  holidayName: v.string(),
+  holidayDate: v.string(),
+  weekNumber: v.number(),
+  physicianId: v.string(),
+  physicianInitials: v.string(),
+  physicianName: v.string(),
+  rotationName: v.string(),
+});
+
+const fairnessRow = v.object({
+  physicianId: v.string(),
+  physicianInitials: v.string(),
+  physicianName: v.string(),
+  holidayCount: v.number(),
+  equity: v.union(v.literal("fair"), v.literal("overloaded"), v.literal("underloaded")),
+});
+
 export const getHolidayCoverageReport = query({
   args: {
     fiscalYearIds: v.array(v.id("fiscalYears")),
   },
-  returns: v.any(),
+  returns: v.object({
+    fiscalYears: v.array(v.object({ _id: v.string(), label: v.string() })),
+    coverage: v.array(holidayCoverageRow),
+    fairness: v.array(fairnessRow),
+    avgHolidays: v.number(),
+  }),
   handler: async (ctx, args) => {
     await requireAdmin(ctx);
 
-    if (args.fiscalYearIds.length === 0) return { fiscalYears: [], holidays: [], physicians: [], coverage: [] };
+    if (args.fiscalYearIds.length === 0) return { fiscalYears: [], coverage: [], fairness: [], avgHolidays: 0 };
 
     const { physicians, map: physicianMap } = await getPhysicianMap(ctx);
     const activePhysicians = sortActivePhysicians(physicians);
@@ -165,11 +190,11 @@ export const getHolidayCoverageReport = query({
       coverage: results,
       fairness: fairnessArray.map((f) => ({
         ...f,
-        equity: f.holidayCount <= avgHolidays + 1
+        equity: (f.holidayCount <= avgHolidays + 1
           ? f.holidayCount >= avgHolidays - 1
             ? "fair"
             : "underloaded"
-          : "overloaded",
+          : "overloaded") as "fair" | "overloaded" | "underloaded",
       })),
       avgHolidays: Math.round(avgHolidays * 100) / 100,
     };
@@ -184,7 +209,15 @@ export const getRotationDistributionReport = query({
   args: {
     fiscalYearId: v.id("fiscalYears"),
   },
-  returns: v.any(),
+  returns: v.union(
+    v.null(),
+    v.object({
+      fiscalYear: v.object({ _id: v.string(), label: v.string() }),
+      rotations: v.array(v.object({ _id: v.string(), name: v.string(), abbreviation: v.string() })),
+      physicians: v.array(v.object({ _id: v.string(), initials: v.string(), name: v.string() })),
+      matrix: v.any(), // Record<physicianId, Record<rotationId, weekCount>> — dynamic keys
+    }),
+  ),
   handler: async (ctx, args) => {
     await requireAdmin(ctx);
 
@@ -243,11 +276,36 @@ export const getRotationDistributionReport = query({
 // 3. cFTE Compliance Report
 // ========================================
 
+const cfteComplianceRow = v.object({
+  physicianId: v.string(),
+  initials: v.string(),
+  name: v.string(),
+  rotationCfte: v.number(),
+  clinicCfte: v.number(),
+  actualCfte: v.number(),
+  targetCfte: v.union(v.number(), v.null()),
+  variance: v.union(v.number(), v.null()),
+  status: v.union(v.literal("no_target"), v.literal("compliant"), v.literal("over"), v.literal("under")),
+});
+
 export const getCfteComplianceReport = query({
   args: {
     fiscalYearId: v.id("fiscalYears"),
   },
-  returns: v.any(),
+  returns: v.union(
+    v.null(),
+    v.object({
+      fiscalYear: v.object({ _id: v.string(), label: v.string() }),
+      rows: v.array(cfteComplianceRow),
+      summary: v.object({
+        totalPhysicians: v.number(),
+        withTarget: v.number(),
+        compliantCount: v.number(),
+        complianceRate: v.number(),
+        avgVariance: v.number(),
+      }),
+    }),
+  ),
   handler: async (ctx, args) => {
     await requireAdmin(ctx);
 
@@ -328,13 +386,13 @@ export const getCfteComplianceReport = query({
         actualCfte,
         targetCfte: target,
         variance,
-        status: target === null
+        status: (target === null
           ? "no_target"
           : Math.abs(actualCfte - target) <= 0.05
             ? "compliant"
             : actualCfte > target
               ? "over"
-              : "under",
+              : "under") as "no_target" | "compliant" | "over" | "under",
       };
     });
 
@@ -363,11 +421,40 @@ export const getCfteComplianceReport = query({
 // 4. Trade Activity Report
 // ========================================
 
+const traderRow = v.object({
+  physicianId: v.string(),
+  initials: v.string(),
+  name: v.string(),
+  initiated: v.number(),
+  received: v.number(),
+  approved: v.number(),
+  denied: v.number(),
+  total: v.number(),
+});
+
 export const getTradeActivityReport = query({
   args: {
     fiscalYearId: v.id("fiscalYears"),
   },
-  returns: v.any(),
+  returns: v.union(
+    v.null(),
+    v.object({
+      fiscalYear: v.object({ _id: v.string(), label: v.string() }),
+      totalTrades: v.number(),
+      statusCounts: v.object({
+        proposed: v.optional(v.number()),
+        peer_accepted: v.optional(v.number()),
+        peer_declined: v.optional(v.number()),
+        admin_approved: v.optional(v.number()),
+        admin_denied: v.optional(v.number()),
+        cancelled: v.optional(v.number()),
+      }),
+      monthlyVolume: v.array(v.object({ month: v.string(), count: v.number() })),
+      topTraders: v.array(traderRow),
+      avgResolutionDays: v.number(),
+      approvalRate: v.number(),
+    }),
+  ),
   handler: async (ctx, args) => {
     await requireAdmin(ctx);
 
@@ -461,15 +548,38 @@ export const getTradeActivityReport = query({
 // 5. Year-over-Year Report
 // ========================================
 
+const yoyDataRow = v.object({
+  physicianId: v.string(),
+  physicianInitials: v.string(),
+  physicianName: v.string(),
+  fiscalYearId: v.string(),
+  fiscalYearLabel: v.string(),
+  rotationId: v.string(),
+  rotationAbbreviation: v.string(),
+  weekCount: v.number(),
+});
+
+const yoyWorkloadRow = v.object({
+  physicianId: v.string(),
+  physicianInitials: v.string(),
+  physicianName: v.string(),
+  weeksByFiscalYear: v.any(), // Record<fiscalYearId, weekCount> — dynamic keys
+});
+
 export const getYearOverYearReport = query({
   args: {
     fiscalYearIds: v.array(v.id("fiscalYears")),
   },
-  returns: v.any(),
+  returns: v.object({
+    fiscalYears: v.array(v.object({ _id: v.string(), label: v.string() })),
+    physicians: v.array(v.object({ _id: v.string(), initials: v.string(), name: v.string() })),
+    data: v.array(yoyDataRow),
+    workloadSummary: v.array(yoyWorkloadRow),
+  }),
   handler: async (ctx, args) => {
     await requireAdmin(ctx);
 
-    if (args.fiscalYearIds.length === 0) return { fiscalYears: [], physicians: [], data: [] };
+    if (args.fiscalYearIds.length === 0) return { fiscalYears: [], physicians: [], data: [], workloadSummary: [] };
 
     const { physicians } = await getPhysicianMap(ctx);
     const activePhysicians = sortActivePhysicians(physicians);
