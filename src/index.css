@@ -4,64 +4,67 @@
 
 @layer base {
   :root {
-    /* --- shadcn/ui semantic tokens (Rush brand mapped) --- */
-    --background: 135 18% 96%;          /* Light Sage #F2F6F3 */
-    --foreground: 152 15% 15%;          /* Dark green-tinged text */
+    /* --- Modern Indigo Palette (Notion-inspired) --- */
+    --background: 0 0% 98%;              /* #FAFAFA warm gray */
+    --foreground: 217 33% 17%;           /* #1F2937 near-black */
 
-    --card: 0 0% 100%;                  /* White */
-    --card-foreground: 152 15% 15%;
+    --card: 0 0% 100%;                   /* White */
+    --card-foreground: 217 33% 17%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 152 15% 15%;
+    --popover-foreground: 217 33% 17%;
 
-    --primary: 152 100% 19%;            /* Rush Legacy Green #006332 */
-    --primary-foreground: 0 0% 100%;    /* White text on green */
+    --primary: 239 84% 67%;              /* #6366F1 indigo */
+    --primary-foreground: 0 0% 100%;     /* White on indigo */
 
-    --secondary: 148 73% 93%;           /* Digital Sage #DFF9EB */
-    --secondary-foreground: 152 100% 19%;
+    --secondary: 220 14% 96%;            /* #F3F4F6 gray-100 */
+    --secondary-foreground: 239 84% 67%;
 
-    --muted: 135 18% 93%;               /* Slightly darker sage */
-    --muted-foreground: 152 10% 40%;
+    --muted: 220 14% 96%;                /* #F3F4F6 */
+    --muted-foreground: 215 16% 47%;     /* #6B7280 gray-500 */
 
-    --accent: 148 73% 93%;              /* Digital Sage for subtle accents */
-    --accent-foreground: 152 100% 19%;
+    --accent: 220 14% 96%;               /* #F3F4F6 */
+    --accent-foreground: 239 84% 67%;
 
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 148 20% 82%;
-    --input: 148 20% 82%;
-    --ring: 152 100% 19%;               /* Legacy Green for focus rings */
+    --border: 220 13% 91%;               /* #E5E7EB gray-200 */
+    --input: 220 13% 91%;
+    --ring: 239 84% 67%;                 /* Indigo focus rings */
     --radius: 0.5rem;
 
     /* Chart colors */
-    --chart-1: 152 100% 19%;            /* Legacy Green */
-    --chart-2: 47 100% 50%;             /* Gold */
-    --chart-3: 199 58% 58%;             /* Cerulean Blue */
-    --chart-4: 153 69% 52%;             /* Vitality Green */
-    --chart-5: 197 100% 28%;            /* Deep Blue */
+    --chart-1: 239 84% 67%;              /* Indigo */
+    --chart-2: 45 93% 47%;               /* Amber */
+    --chart-3: 158 64% 52%;              /* Emerald */
+    --chart-4: 0 84% 60%;                /* Red */
+    --chart-5: 199 89% 48%;              /* Blue */
 
     /* Sidebar */
     --sidebar-background: 0 0% 100%;
-    --sidebar-foreground: 152 15% 15%;
-    --sidebar-primary: 152 100% 19%;
+    --sidebar-foreground: 217 33% 17%;
+    --sidebar-primary: 239 84% 67%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 148 73% 93%;
-    --sidebar-accent-foreground: 152 100% 19%;
-    --sidebar-border: 148 20% 82%;
-    --sidebar-ring: 152 100% 19%;
+    --sidebar-accent: 220 14% 96%;
+    --sidebar-accent-foreground: 239 84% 67%;
+    --sidebar-border: 220 13% 91%;
+    --sidebar-ring: 239 84% 67%;
 
-    /* Rush app-level custom properties (legacy compat) */
-    --app-bg: #f5faf7;
+    /* Rush app-level custom properties */
+    --app-bg: #fafafa;
     --app-surface: #ffffff;
-    --app-surface-muted: #edf7f1;
-    --app-border: #c7ddd1;
-    --app-text: #1f2d27;
-    --app-text-muted: #50665a;
+    --app-surface-muted: #f3f4f6;
+    --app-border: #e5e7eb;
+    --app-text: #1f2937;
+    --app-text-muted: #6b7280;
+
+    /* Rush colors (historical reference) */
     --rush-legacy-green: #006332;
     --rush-vitality-green: #2dda8e;
     --rush-gold: #ffc600;
     --rush-dark-grey: #333333;
+    --rush-indigo: #6366f1;              /* NEW - align with theme */
     --rush-light-sage: #f2f6f3;
     --rush-digital-sage: #dff9eb;
     --rush-digital-ivory: #fffbec;
@@ -71,56 +74,56 @@
   }
 
   .dark {
-    --background: 152 20% 7%;
-    --foreground: 148 20% 93%;
+    --background: 222 47% 11%;           /* Dark slate background */
+    --foreground: 210 40% 98%;           /* Light text */
 
-    --card: 152 20% 10%;
-    --card-foreground: 148 20% 93%;
+    --card: 222 47% 11%;
+    --card-foreground: 210 40% 98%;
 
-    --popover: 152 20% 10%;
-    --popover-foreground: 148 20% 93%;
+    --popover: 222 47% 11%;
+    --popover-foreground: 210 40% 98%;
 
-    --primary: 153 69% 52%;             /* Vitality Green in dark mode */
-    --primary-foreground: 152 20% 7%;
+    --primary: 239 84% 67%;              /* Indigo (same as light mode) */
+    --primary-foreground: 210 40% 98%;
 
-    --secondary: 152 15% 18%;
-    --secondary-foreground: 148 20% 93%;
+    --secondary: 217 33% 17%;            /* Dark gray */
+    --secondary-foreground: 210 40% 98%;
 
-    --muted: 152 15% 18%;
-    --muted-foreground: 148 15% 65%;
+    --muted: 215 28% 17%;
+    --muted-foreground: 215 20% 65%;
 
-    --accent: 152 15% 18%;
-    --accent-foreground: 148 20% 93%;
+    --accent: 215 28% 17%;
+    --accent-foreground: 210 40% 98%;
 
     --destructive: 0 62% 50%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 152 15% 22%;
-    --input: 152 15% 22%;
-    --ring: 153 69% 52%;
+    --border: 215 28% 17%;               /* Subtle border */
+    --input: 215 28% 17%;
+    --ring: 239 84% 67%;                 /* Indigo focus rings */
 
-    --chart-1: 153 69% 52%;
-    --chart-2: 47 100% 55%;
-    --chart-3: 199 58% 65%;
-    --chart-4: 152 100% 30%;
-    --chart-5: 197 80% 45%;
+    --chart-1: 239 84% 67%;              /* Indigo */
+    --chart-2: 45 93% 47%;               /* Amber */
+    --chart-3: 158 64% 52%;              /* Emerald */
+    --chart-4: 0 84% 60%;                /* Red */
+    --chart-5: 199 89% 48%;              /* Blue */
 
-    --sidebar-background: 152 20% 8%;
-    --sidebar-foreground: 148 20% 93%;
-    --sidebar-primary: 153 69% 52%;
-    --sidebar-primary-foreground: 152 20% 7%;
-    --sidebar-accent: 152 15% 18%;
-    --sidebar-accent-foreground: 148 20% 93%;
-    --sidebar-border: 152 15% 22%;
-    --sidebar-ring: 153 69% 52%;
+    --sidebar-background: 222 47% 11%;
+    --sidebar-foreground: 210 40% 98%;
+    --sidebar-primary: 239 84% 67%;
+    --sidebar-primary-foreground: 210 40% 98%;
+    --sidebar-accent: 215 28% 17%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 215 28% 17%;
+    --sidebar-ring: 239 84% 67%;
 
     /* Rush app-level custom properties (dark) */
-    --app-bg: #0f1b16;
-    --app-surface: #14231d;
-    --app-surface-muted: #1b3028;
-    --app-border: #2e4a3f;
-    --app-text: #e4f3eb;
-    --app-text-muted: #b6cdc1;
+    --app-bg: #1a202c;
+    --app-surface: #2d3748;
+    --app-surface-muted: #374151;
+    --app-border: #4b5563;
+    --app-text: #f9fafb;
+    --app-text-muted: #d1d5db;
   }
 
   * {
@@ -151,12 +154,9 @@ h1, h2, h3, h4, h5, h6 {
     sans-serif;
 }
 
-/* Decorative background gradients */
+/* Clean flat background (Notion aesthetic) */
 body {
-  background:
-    radial-gradient(circle at top right, rgb(84 173 211 / 0.18), transparent 42%),
-    radial-gradient(circle at bottom left, rgb(223 249 235 / 0.3), transparent 40%),
-    hsl(var(--background));
+  background: hsl(var(--background));
 }
 
 /* Legacy dark mode overrides for existing components (to be removed as components migrate to shadcn) */
@@ -302,9 +302,9 @@ body {
 
 /* Auth-specific styles (kept for sign-in/sign-up pages) */
 .auth-input-field {
-  @apply w-full rounded-container border border-gray-200 bg-white px-4 py-3 outline-none transition-shadow shadow-sm hover:shadow focus:border-primary focus:ring-1 focus:ring-primary dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100;
+  @apply w-full rounded-container border border-input bg-white px-4 py-3 outline-none transition-shadow shadow-sm hover:shadow focus:border-primary focus:ring-1 focus:ring-primary dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100;
 }
 
 .auth-button {
-  @apply w-full px-4 py-3 rounded bg-rush-legacy-green text-white font-semibold hover:bg-rush-legacy-green/90 transition-colors shadow-sm hover:shadow disabled:opacity-50 disabled:cursor-not-allowed;
+  @apply w-full px-4 py-3 rounded bg-primary text-primary-foreground font-semibold hover:opacity-90 transition-opacity shadow-sm hover:shadow disabled:opacity-50 disabled:cursor-not-allowed;
 }

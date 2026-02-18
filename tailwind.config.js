@@ -14,19 +14,19 @@ export default {
     },
     extend: {
       colors: {
-        // Rush University Brand Colors (direct hex for explicit usage)
+        // Rush University Brand Colors (historical reference)
         rush: {
           'legacy-green': '#006332',
           'vitality-green': '#2DDA8E',
           'gold': '#FFC600',
           'dark-grey': '#333333',
+          'indigo': '#6366F1',             // NEW - primary theme color
           'light-sage': '#F2F6F3',
           'digital-sage': '#DFF9EB',
           'digital-ivory': '#FFFBEC',
           'digital-rose': '#FDE0DF',
           'cerulean-blue': '#54ADD3',
           'deep-blue': '#00668E',
-          'indigo': '#1E1869',
         },
         // shadcn/ui semantic color tokens (CSS variable based)
         border: "hsl(var(--border))",
@@ -82,11 +82,11 @@ export default {
           "5": "hsl(var(--chart-5))",
         },
         // Scheduling-specific semantic colors
-        warning: '#FFC600',
-        success: '#2DDA8E',
-        available: '#2DDA8E',
-        'prefer-not': '#FFC600',
-        unavailable: '#dc2626',
+        warning: '#F59E0B',         // Amber
+        success: '#10B981',         // Emerald
+        available: '#10B981',       // Emerald (matches success)
+        'prefer-not': '#F59E0B',    // Amber (matches warning)
+        unavailable: '#EF4444',     // Red
       },
       fontFamily: {
         'heading': ['Calibre', 'system-ui', 'sans-serif'],
@@ -104,6 +104,11 @@ export default {
       },
       backgroundColor: {
         'grid': '#F2F6F3',
+      },
+      boxShadow: {
+        'card': '0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24)',
+        'card-hover': '0 4px 6px rgba(0,0,0,0.1), 0 2px 4px rgba(0,0,0,0.06)',
+        'elevated': '0 10px 20px rgba(0,0,0,0.1), 0 3px 6px rgba(0,0,0,0.05)',
       },
       keyframes: {
         "accordion-down": {
