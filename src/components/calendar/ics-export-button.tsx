@@ -10,22 +10,7 @@ import {
   type MasterCalendarExportEvent,
 } from "@/shared/services/masterCalendarExport"
 import type { Id } from "../../../convex/_generated/dataModel"
-
-type GridCell = {
-  rotationId: Id<"rotations">
-  assignmentId: Id<"assignments"> | null
-  physicianId: Id<"physicians"> | null
-  physicianName: string | null
-  physicianInitials: string | null
-}
-
-type GridRow = {
-  weekId: Id<"weeks">
-  weekNumber: number
-  startDate: string
-  endDate: string
-  cells: GridCell[]
-}
+import type { GridRow } from "./calendar-grid-utils"
 
 type Rotation = {
   _id: Id<"rotations">

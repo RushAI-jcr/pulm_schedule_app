@@ -30,6 +30,7 @@ export default function CalendarPage() {
   const [viewMode, setViewMode] = useState<ViewMode>("year")
   const [scopeMode, setScopeMode] = useState<ScopeMode>("my")
   const [activeMonth, setActiveMonth] = useState<number>(new Date().getMonth())
+  const [pendingScroll, setPendingScroll] = useState<{ year: number; month: number } | null>(null)
 
   // Filters
   const [selectedRotationId, setSelectedRotationId] = useState<string | null>(null)
@@ -46,6 +47,23 @@ export default function CalendarPage() {
   useEffect(() => {
     if (scopeMode === "my") setSelectedPhysicianId(null)
   }, [scopeMode])
+
+  useEffect(() => {
+    if (!pendingScroll) return
+    if (viewMode !== "year") {
+      setPendingScroll(null)
+      return
+    }
+
+    const { year, month } = pendingScroll
+    requestAnimationFrame(() => {
+      document.getElementById(monthAnchorId(year, month))?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      })
+      setPendingScroll(null)
+    })
+  }, [pendingScroll, viewMode])
 
   const calendarData = useQuery(
     api.functions.masterCalendar.getPublishedCalendarByFiscalYear,
@@ -127,19 +145,10 @@ export default function CalendarPage() {
     }
   }
 
-  const handleMonthSelect = (month: number) => {
+  const handleMonthSelect = (month: number, year: number) => {
     setActiveMonth(month)
     if (viewMode === "year") {
-      // Defer scroll to after React commits the DOM update
-      const entry = fiscalMonths.find((m) => m.month === month)
-      if (entry) {
-        requestAnimationFrame(() => {
-          document.getElementById(monthAnchorId(entry.year, entry.month))?.scrollIntoView({
-            behavior: "smooth",
-            block: "start",
-          })
-        })
-      }
+      setPendingScroll({ year, month })
     } else {
       setViewMode("month")
     }
