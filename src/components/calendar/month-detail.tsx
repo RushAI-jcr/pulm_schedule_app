@@ -9,11 +9,13 @@ import type { Id } from "../../../convex/_generated/dataModel"
 import {
   buildMonthGrid,
   inferYearForMonth,
+  deriveFiscalMonths,
   toLocalDate,
   toISODate,
   isSameDay,
   type GridRow,
 } from "./calendar-grid-utils"
+import { useToday } from "@/hooks/use-today"
 
 type Rotation = {
   _id: Id<"rotations">
@@ -49,11 +51,7 @@ export function MonthDetail({
   onMonthChange: (month: number) => void
   onBackToYear: () => void
 }) {
-  const today = useMemo(() => {
-    const d = new Date()
-    d.setHours(0, 0, 0, 0)
-    return d
-  }, [])
+  const today = useToday()
 
   const activeYear = useMemo(
     () => inferYearForMonth(activeMonth, grid),
@@ -79,19 +77,7 @@ export function MonthDetail({
     year: "numeric",
   })
 
-  const fiscalMonths = useMemo(() => {
-    const seen = new Set<string>()
-    const months: Array<{ month: number; year: number }> = []
-    for (const row of grid) {
-      const d = toLocalDate(row.startDate)
-      const key = `${d.getFullYear()}-${d.getMonth()}`
-      if (!seen.has(key)) {
-        seen.add(key)
-        months.push({ month: d.getMonth(), year: d.getFullYear() })
-      }
-    }
-    return months
-  }, [grid])
+  const fiscalMonths = useMemo(() => deriveFiscalMonths(grid), [grid])
 
   const currentIndex = fiscalMonths.findIndex(
     (m) => m.month === activeMonth && m.year === activeYear
@@ -224,11 +210,11 @@ export function MonthDetail({
                             visibleRotationIds.has(String(cell.rotationId))
                         )
                         .map((cell) => {
-                          const rotation = rotations.find(
+                          const rotIdx = rotations.findIndex(
                             (r) => String(r._id) === String(cell.rotationId)
                           )
-                          if (!rotation) return null
-                          const rotIdx = rotations.indexOf(rotation)
+                          if (rotIdx === -1) return null
+                          const rotation = rotations[rotIdx]
                           const accent = getRotationAccent(rotIdx)
                           const isMe =
                             !!physicianId &&

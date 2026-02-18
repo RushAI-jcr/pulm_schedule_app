@@ -88,8 +88,7 @@ export function deriveFiscalMonths(grid: GridRow[]) {
   return months
 }
 
-// Scroll to a month anchor in the year stack view
-export function scrollToMonth(year: number, month: number) {
-  const el = document.getElementById(`month-${year}-${month}`)
-  el?.scrollIntoView({ behavior: "smooth", block: "start" })
+// Stable ID for a month's scroll anchor — shared by renderer and scroll caller
+export function monthAnchorId(year: number, month: number): string {
+  return `month-${year}-${month}`
 }

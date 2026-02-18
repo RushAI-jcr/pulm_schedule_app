@@ -241,6 +241,12 @@ function escapeIcsText(value: string): string {
     .replace(/;/g, "\\;");
 }
 
+// Convex IDs are opaque alphanumeric+underscore strings. Validate before
+// embedding in ICS UID fields to prevent structural injection.
+function sanitizeConvexId(id: string): string {
+  return id.replace(/[^a-zA-Z0-9_-]/g, "_");
+}
+
 function normalizeCategory(value: string): string {
   return value.trim().toLowerCase();
 }
@@ -267,9 +273,7 @@ export function buildMasterCalendarIcs(data: MasterCalendarExportData): string {
 
     lines.push("BEGIN:VEVENT");
     lines.push(
-      `UID:${escapeIcsText(
-        `assignment-${assignment.weekId}-${assignment.rotationId}-${assignment.physicianId}@rush-pccm`,
-      )}`,
+      `UID:assignment-${sanitizeConvexId(assignment.weekId)}-${sanitizeConvexId(assignment.rotationId)}-${sanitizeConvexId(assignment.physicianId)}@rush-pccm`,
     );
     lines.push(`DTSTAMP:${dtstamp}`);
     lines.push(`DTSTART;VALUE=DATE:${toIcsDate(assignment.weekStartDate)}`);
@@ -300,7 +304,7 @@ export function buildMasterCalendarIcs(data: MasterCalendarExportData): string {
     if (!isIsoDate(exclusiveEnd)) continue;
 
     lines.push("BEGIN:VEVENT");
-    lines.push(`UID:${escapeIcsText(`calendar-event-${event.id}@rush-pccm`)}`);
+    lines.push(`UID:calendar-event-${sanitizeConvexId(event.id)}@rush-pccm`);
     lines.push(`DTSTAMP:${dtstamp}`);
     lines.push(`DTSTART;VALUE=DATE:${toIcsDate(event.date)}`);
     lines.push(`DTEND;VALUE=DATE:${toIcsDate(exclusiveEnd)}`);

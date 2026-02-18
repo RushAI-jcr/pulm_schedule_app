@@ -15,7 +15,7 @@ import { CalendarFilters } from "@/components/calendar/calendar-filters"
 import { IcsExportButton } from "@/components/calendar/ics-export-button"
 import { YearMonthStack } from "@/components/calendar/year-month-stack"
 import { MonthDetail } from "@/components/calendar/month-detail"
-import { scrollToMonth } from "@/components/calendar/calendar-grid-utils"
+import { monthAnchorId } from "@/components/calendar/calendar-grid-utils"
 import { useUserRole } from "@/hooks/use-user-role"
 import { useFiscalYear } from "@/hooks/use-fiscal-year"
 
@@ -91,12 +91,6 @@ export default function CalendarPage() {
     return (selectedPhysicianId as Id<"physicians">) ?? null
   }, [scopeMode, physicianId, selectedPhysicianId])
 
-  // For ICS export: which physician to export
-  const exportPhysicianId = useMemo((): Id<"physicians"> | null => {
-    if (scopeMode === "my") return physicianId ?? null
-    return (selectedPhysicianId as Id<"physicians">) ?? null
-  }, [scopeMode, physicianId, selectedPhysicianId])
-
   const exportPhysicianInitials = useMemo((): string | null => {
     if (scopeMode === "my") {
       if (!calendarData?.grid || !physicianId) return null
@@ -136,10 +130,15 @@ export default function CalendarPage() {
   const handleMonthSelect = (month: number) => {
     setActiveMonth(month)
     if (viewMode === "year") {
-      // In year (stack) view — scroll to the month anchor
+      // Defer scroll to after React commits the DOM update
       const entry = fiscalMonths.find((m) => m.month === month)
       if (entry) {
-        scrollToMonth(entry.year, entry.month)
+        requestAnimationFrame(() => {
+          document.getElementById(monthAnchorId(entry.year, entry.month))?.scrollIntoView({
+            behavior: "smooth",
+            block: "start",
+          })
+        })
       }
     } else {
       setViewMode("month")
@@ -196,7 +195,7 @@ export default function CalendarPage() {
             {calendarData && (
               <IcsExportButton
                 calendarData={calendarData}
-                forPhysicianId={exportPhysicianId}
+                forPhysicianId={filteredPhysicianId}
                 forPhysicianInitials={exportPhysicianInitials}
               />
             )}

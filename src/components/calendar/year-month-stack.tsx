@@ -6,11 +6,13 @@ import { getRotationAccent } from "./calendar-legend"
 import {
   buildMonthGrid,
   deriveFiscalMonths,
+  monthAnchorId,
   toLocalDate,
   toISODate,
   isSameDay,
   type GridRow,
 } from "./calendar-grid-utils"
+import { useToday } from "@/hooks/use-today"
 import type { Id } from "../../../convex/_generated/dataModel"
 
 type Rotation = {
@@ -48,11 +50,7 @@ export function YearMonthStack({
   visibleRotationIds?: Set<string> | null
   onWeekClick?: (weekNumber: number) => void
 }) {
-  const today = useMemo(() => {
-    const d = new Date()
-    d.setHours(0, 0, 0, 0)
-    return d
-  }, [])
+  const today = useToday()
 
   const fiscalMonths = useMemo(() => deriveFiscalMonths(grid), [grid])
 
@@ -64,6 +62,24 @@ export function YearMonthStack({
     }
     return map
   }, [events])
+
+  // Hoist buildMonthGrid calls — avoids recomputing on every re-render when grid is stable
+  const monthGrids = useMemo(
+    () =>
+      fiscalMonths.map(({ month, year }) => ({
+        month,
+        year,
+        calendarWeeks: buildMonthGrid(year, month, grid),
+      })),
+    [fiscalMonths, grid]
+  )
+
+  // Pre-build rotation lookup for O(1) access in pill render
+  const rotationMap = useMemo(() => {
+    const map = new Map<string, { rotation: Rotation; index: number }>()
+    rotations.forEach((r, i) => map.set(String(r._id), { rotation: r, index: i }))
+    return map
+  }, [rotations])
 
   if (grid.length === 0) {
     return (
@@ -77,12 +93,11 @@ export function YearMonthStack({
     <>
       {/* Desktop: 12-month stacked vertical layout */}
       <div className="hidden md:block space-y-10">
-        {fiscalMonths.map(({ month, year }) => {
-          const calendarWeeks = buildMonthGrid(year, month, grid)
+        {monthGrids.map(({ month, year, calendarWeeks }) => {
           if (calendarWeeks.length === 0) return null
 
           return (
-            <div key={`${year}-${month}`} id={`month-${year}-${month}`}>
+            <div key={`${year}-${month}`} id={monthAnchorId(year, month)}>
               {/* Month header */}
               <div className="mb-3 flex items-baseline gap-2">
                 <h2 className="text-xl font-semibold tracking-tight text-foreground">
@@ -185,11 +200,9 @@ export function YearMonthStack({
                                   visibleRotationIds.has(String(cell.rotationId))
                               )
                               .map((cell) => {
-                                const rotation = rotations.find(
-                                  (r) => String(r._id) === String(cell.rotationId)
-                                )
-                                if (!rotation) return null
-                                const rotIdx = rotations.indexOf(rotation)
+                                const entry = rotationMap.get(String(cell.rotationId))
+                                if (!entry) return null
+                                const { rotation, index: rotIdx } = entry
                                 const accent = getRotationAccent(rotIdx)
                                 const isMe =
                                   !!physicianId &&
@@ -304,9 +317,7 @@ export function YearMonthStack({
               </div>
               {myAssignment && (
                 <p className="mt-1 text-sm text-muted-foreground">
-                  {rotations.find(
-                    (r) => String(r._id) === String(myAssignment.rotationId)
-                  )?.name ?? "Unknown"}
+                  {rotationMap.get(String(myAssignment.rotationId))?.rotation.name ?? "Unknown"}
                 </p>
               )}
               {!physicianId && (
