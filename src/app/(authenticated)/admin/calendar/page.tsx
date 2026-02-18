@@ -18,7 +18,7 @@ import type { Id } from "../../../../../convex/_generated/dataModel"
 import { PageHeader } from "@/components/layout/page-header"
 import { EmptyState } from "@/components/shared/empty-state"
 import { PageSkeleton } from "@/components/shared/loading-skeleton"
-import { Button } from "@/components/ui/button"
+import { Button } from "@/shared/components/ui/button"
 import {
   Dialog,
   DialogContent,
@@ -32,6 +32,7 @@ import { cn } from "@/lib/utils"
 import { AutoFillConfigPanel } from "@/components/admin/auto-fill-config-panel"
 import { AutoFillMetricsCard } from "@/components/admin/auto-fill-metrics-card"
 import { AutoFillDecisionLog } from "@/components/admin/auto-fill-decision-log"
+import { getRotationAccent } from "@/components/calendar/calendar-legend"
 
 interface AutoFillMetrics {
   totalCells: number
@@ -61,6 +62,35 @@ export default function MasterCalendarPage() {
   const [decisionLogOpen, setDecisionLogOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [lastMetrics, setLastMetrics] = useState<AutoFillMetrics | null>(null)
+
+  // Must be before any early returns to satisfy Rules of Hooks
+  const availabilityMap = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const entry of data?.availabilityEntries ?? []) {
+      map.set(`${String(entry.physicianId)}:${String(entry.weekId)}`, entry.availability)
+    }
+    return map
+  }, [data?.availabilityEntries])
+
+  // Month break tracking for column separators and label row
+  const { monthBreakSet, monthBreaks } = useMemo(() => {
+    const breakSet = new Set<number>()
+    const breaks: Array<{ weekIndex: number; label: string }> = []
+    let lastMonth = -1
+    ;(data?.grid ?? []).forEach((row, i) => {
+      const d = new Date(row.startDate + "T00:00:00")
+      const month = d.getMonth()
+      if (month !== lastMonth) {
+        breakSet.add(i)
+        breaks.push({
+          weekIndex: i,
+          label: d.toLocaleDateString("en-US", { month: "short" }),
+        })
+        lastMonth = month
+      }
+    })
+    return { monthBreakSet: breakSet, monthBreaks: breaks }
+  }, [data?.grid])
 
   if (data === undefined) {
     return (
@@ -151,15 +181,6 @@ export default function MasterCalendarPage() {
       // Error will show in Convex
     }
   }
-
-  // Build availability lookup
-  const availabilityMap = useMemo(() => {
-    const map = new Map<string, string>()
-    for (const entry of data.availabilityEntries) {
-      map.set(`${String(entry.physicianId)}:${String(entry.weekId)}`, entry.availability)
-    }
-    return map
-  }, [data.availabilityEntries])
 
   const hasDraft = !!data.calendar
   const isDraft = data.calendar?.status === "draft"
@@ -292,78 +313,142 @@ export default function MasterCalendarPage() {
             )}
 
             {/* Assignment Grid */}
-            <div className="overflow-x-auto rounded-lg border">
+            <div className="overflow-x-auto rounded-lg border bg-card shadow-sm">
               <div className="min-w-[800px]">
-                {/* Header row: week numbers */}
+                {/* Month label row */}
                 <div
-                  className="grid gap-px text-xs border-b bg-muted/50"
+                  className="grid gap-px text-xs bg-muted/20"
                   style={{
-                    gridTemplateColumns: `100px repeat(${data.grid.length}, minmax(60px, 1fr))`,
+                    gridTemplateColumns: `110px repeat(${data.grid.length}, minmax(60px, 1fr))`,
                   }}
                 >
-                  <div className="px-2 py-2 font-medium text-muted-foreground sticky left-0 bg-muted/50 z-10">
+                  <div className="sticky left-0 z-10 bg-muted/20 px-2 py-1" />
+                  {data.grid.map((row, i) => {
+                    const isBreak = monthBreakSet.has(i)
+                    const breakInfo = monthBreaks.find((b) => b.weekIndex === i)
+                    return (
+                      <div
+                        key={`month-${i}`}
+                        className={cn(
+                          "px-1 py-1 text-[10px] font-semibold tracking-wide",
+                          isBreak
+                            ? "border-l-2 border-muted-foreground/25 text-muted-foreground"
+                            : "text-transparent"
+                        )}
+                      >
+                        {breakInfo?.label ?? "·"}
+                      </div>
+                    )
+                  })}
+                </div>
+
+                {/* Week number row */}
+                <div
+                  className="grid gap-px text-xs border-b border-t bg-muted/40"
+                  style={{
+                    gridTemplateColumns: `110px repeat(${data.grid.length}, minmax(60px, 1fr))`,
+                  }}
+                >
+                  <div className="px-3 py-1.5 font-medium text-muted-foreground sticky left-0 bg-muted/40 z-10 text-[10px] uppercase tracking-wider">
                     Rotation
                   </div>
-                  {data.grid.map((row) => (
-                    <div key={row.weekNumber} className="px-1 py-2 text-center font-medium text-muted-foreground">
-                      W{row.weekNumber}
+                  {data.grid.map((row, i) => (
+                    <div
+                      key={row.weekNumber}
+                      className={cn(
+                        "px-1 py-1.5 text-center text-[10px] font-medium text-muted-foreground",
+                        monthBreakSet.has(i) && "border-l-2 border-muted-foreground/25"
+                      )}
+                    >
+                      {row.weekNumber}
                     </div>
                   ))}
                 </div>
 
                 {/* One row per rotation */}
-                {data.rotations.map((rotation) => (
-                  <div
-                    key={String(rotation._id)}
-                    className="grid gap-px border-b last:border-b-0"
-                    style={{
-                      gridTemplateColumns: `100px repeat(${data.grid.length}, minmax(60px, 1fr))`,
-                    }}
-                  >
-                    <div className="px-2 py-1.5 text-xs font-semibold sticky left-0 bg-background z-10 flex items-center">
-                      {rotation.abbreviation}
-                    </div>
-                    {data.grid.map((weekRow) => {
-                      const cell = weekRow.cells.find(
-                        (c) => String(c.rotationId) === String(rotation._id),
-                      )
-                      const currentPhysicianId = cell?.physicianId ? String(cell.physicianId) : ""
+                {data.rotations.map((rotation, rotIdx) => {
+                  const accent = getRotationAccent(rotIdx)
+                  return (
+                    <div
+                      key={String(rotation._id)}
+                      className="grid gap-px border-b last:border-b-0"
+                      style={{
+                        gridTemplateColumns: `110px repeat(${data.grid.length}, minmax(60px, 1fr))`,
+                      }}
+                    >
+                      {/* Rotation label with accent dot */}
+                      <div className="px-3 py-1.5 text-xs font-semibold sticky left-0 bg-card z-10 flex items-center gap-1.5 border-r border-border/40">
+                        <span className={cn("h-2 w-2 rounded-full shrink-0", accent.dot)} />
+                        <span className="text-foreground truncate">{rotation.abbreviation}</span>
+                      </div>
 
-                      return (
-                        <div key={weekRow.weekNumber} className="px-0.5 py-0.5">
-                          <select
+                      {/* Assignment cells */}
+                      {data.grid.map((weekRow, colIdx) => {
+                        const cell = weekRow.cells.find(
+                          (c) => String(c.rotationId) === String(rotation._id),
+                        )
+                        const currentPhysicianId = cell?.physicianId ? String(cell.physicianId) : ""
+                        const assignedPhysician = currentPhysicianId
+                          ? data.physicians.find((p) => String(p._id) === currentPhysicianId)
+                          : null
+
+                        return (
+                          <div
+                            key={weekRow.weekNumber}
                             className={cn(
-                              "w-full h-7 text-[10px] rounded border-0 bg-muted/30 text-center cursor-pointer",
-                              "hover:bg-accent focus:ring-1 focus:ring-primary",
-                              currentPhysicianId && "bg-primary/10 font-medium",
-                              !isDraft && "pointer-events-none opacity-60",
+                              "px-0.5 py-0.5",
+                              monthBreakSet.has(colIdx) && "border-l-2 border-muted-foreground/25"
                             )}
-                            value={currentPhysicianId}
-                            onChange={(e) =>
-                              handleAssignCell(
-                                String(weekRow.weekId),
-                                String(rotation._id),
-                                e.target.value || null,
-                              )
-                            }
-                            disabled={!isDraft}
                           >
-                            <option value="">—</option>
-                            {data.physicians.map((p) => {
-                              const avail = availabilityMap.get(`${String(p._id)}:${String(weekRow.weekId)}`)
-                              const prefix = avail === "red" ? "\ud83d\udd34 " : avail === "yellow" ? "\ud83d\udfe1 " : ""
-                              return (
-                                <option key={String(p._id)} value={String(p._id)}>
-                                  {prefix}{p.initials}
-                                </option>
-                              )
-                            })}
-                          </select>
-                        </div>
-                      )
-                    })}
-                  </div>
-                ))}
+                            {/* Styled cell display + invisible select overlay */}
+                            <div className="relative">
+                              {/* Visual display */}
+                              <div
+                                className={cn(
+                                  "h-7 flex items-center px-1.5 rounded-sm text-[10px] font-medium transition-opacity",
+                                  assignedPhysician
+                                    ? cn(
+                                        "border-l-[3px] bg-card text-foreground",
+                                        accent.borderL
+                                      )
+                                    : "border border-dashed border-muted-foreground/30 bg-transparent text-muted-foreground/40",
+                                  !isDraft && "opacity-50"
+                                )}
+                              >
+                                {assignedPhysician?.initials ?? "—"}
+                              </div>
+                              {/* Invisible interactive select */}
+                              <select
+                                className="absolute inset-0 opacity-0 w-full cursor-pointer disabled:cursor-default"
+                                value={currentPhysicianId}
+                                onChange={(e) =>
+                                  handleAssignCell(
+                                    String(weekRow.weekId),
+                                    String(rotation._id),
+                                    e.target.value || null,
+                                  )
+                                }
+                                disabled={!isDraft}
+                                aria-label={`${rotation.abbreviation} week ${weekRow.weekNumber}`}
+                              >
+                                <option value="">—</option>
+                                {data.physicians.map((p) => {
+                                  const avail = availabilityMap.get(`${String(p._id)}:${String(weekRow.weekId)}`)
+                                  const prefix = avail === "red" ? "🔴 " : avail === "yellow" ? "🟡 " : ""
+                                  return (
+                                    <option key={String(p._id)} value={String(p._id)}>
+                                      {prefix}{p.initials}
+                                    </option>
+                                  )
+                                })}
+                              </select>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )
+                })}
               </div>
             </div>
           </>
