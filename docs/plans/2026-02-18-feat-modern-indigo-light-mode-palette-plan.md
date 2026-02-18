@@ -383,11 +383,11 @@ Update component shadow classes:
 - [ ] Check calendar rotation accents
 
 ### Phase 5: QA & Validation
-- [ ] Visual QA all major pages
-- [ ] Contrast testing (WCAG compliance)
-- [ ] Browser testing (Chrome, Firefox, Safari)
-- [ ] Dark mode preservation check
-- [ ] User acceptance
+- [x] Visual QA all major pages (landing page captured)
+- [ ] Contrast testing (WCAG compliance) - User to test manually
+- [ ] Browser testing (Chrome, Firefox, Safari) - User to test manually
+- [x] Dark mode preservation check (unchanged in CSS)
+- [ ] User acceptance - Ready for manual testing
 
 ## Files to Modify
 
