@@ -1,6 +1,7 @@
 import { mutation, MutationCtx } from "../_generated/server";
 import { v } from "convex/values";
 import { requireAdmin } from "../lib/auth";
+import { ensureCanActivateFiscalYear } from "../lib/fiscalYear";
 
 export const fixFY2526Status = mutation({
   args: {},
@@ -16,6 +17,10 @@ export const fixFY2526Status = mutation({
 
     if (!fy2526) {
       return { message: "FY 2025-2026 not found" };
+    }
+
+    if (fy2526.status !== "published") {
+      await ensureCanActivateFiscalYear(ctx, fy2526._id);
     }
 
     // Update FY2025-2026 to published (active)

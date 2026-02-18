@@ -3,10 +3,9 @@ import { v } from "convex/values";
 import { requireAdmin, requireAuthenticatedUser } from "../lib/auth";
 import { canTransitionFiscalYearStatus, FiscalYearStatus } from "../lib/workflowPolicy";
 import {
-  ACTIVE_FISCAL_YEAR_STATUSES,
   ensureCanActivateFiscalYear,
-  ensureNoActiveFiscalYear,
   getSingleActiveFiscalYear,
+  isActiveFiscalYearStatus,
   parseRequestDeadlineMs,
 } from "../lib/fiscalYear";
 import { publishDraftCalendarForFiscalYear } from "../lib/masterCalendarPublish";
@@ -192,8 +191,6 @@ export const createFiscalYear = mutation({
       throw new Error(`Fiscal year label ${label} already exists`);
     }
 
-    await ensureNoActiveFiscalYear(ctx);
-
     const fiscalYearId = await ctx.db.insert("fiscalYears", {
       ...args,
       label,
@@ -274,8 +271,6 @@ export const seedFY27 = mutation({
       .withIndex("by_label", (q) => q.eq("label", "FY27"))
       .collect();
     if (existingByLabel.length > 0) return { message: "FY27 already exists" };
-
-    await ensureNoActiveFiscalYear(ctx);
 
     const fiscalYearId = await ctx.db.insert("fiscalYears", {
       label: "FY27",
@@ -401,7 +396,7 @@ export const updateFiscalYearStatus = mutation({
       throw new Error(`Invalid transition: ${fiscalYear.status} -> ${args.status}`);
     }
 
-    if (ACTIVE_FISCAL_YEAR_STATUSES.includes(args.status as any)) {
+    if (isActiveFiscalYearStatus(args.status)) {
       await ensureCanActivateFiscalYear(ctx, fiscalYear._id);
     }
 

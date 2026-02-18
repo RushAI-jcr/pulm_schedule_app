@@ -149,12 +149,12 @@ function FiscalYearSection() {
               </Button>
             </DialogTrigger>
             <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Create Fiscal Year</DialogTitle>
-                <DialogDescription>
-                  Create a new fiscal year with 52 weeks. Only one active FY can exist at a time.
-                </DialogDescription>
-              </DialogHeader>
+                <DialogHeader>
+                  <DialogTitle>Create Fiscal Year</DialogTitle>
+                  <DialogDescription>
+                  Create a new fiscal year with 52 weeks. Historical, current, and future years can coexist.
+                  </DialogDescription>
+                </DialogHeader>
               <div className="grid gap-3 py-4">
                 <div>
                   <Label className="text-xs">Label</Label>

@@ -12,7 +12,9 @@ export const ACTIVE_FISCAL_YEAR_STATUSES = [
 
 export type ActiveFiscalYearStatus = (typeof ACTIVE_FISCAL_YEAR_STATUSES)[number];
 
-function isActiveStatus(status: Doc<"fiscalYears">["status"]): status is ActiveFiscalYearStatus {
+export function isActiveFiscalYearStatus(
+  status: Doc<"fiscalYears">["status"],
+): status is ActiveFiscalYearStatus {
   return ACTIVE_FISCAL_YEAR_STATUSES.includes(status as ActiveFiscalYearStatus);
 }
 
@@ -28,13 +30,48 @@ export async function listActiveFiscalYears(ctx: AnyCtx) {
   return all;
 }
 
+function parseDateMs(value: string): number | null {
+  const ms = Date.parse(value);
+  return Number.isNaN(ms) ? null : ms;
+}
+
+export function pickMostRelevantFiscalYear(
+  fiscalYears: Array<Doc<"fiscalYears">>,
+  now = Date.now(),
+): Doc<"fiscalYears"> {
+  const enriched = fiscalYears.map((fy) => ({
+    fy,
+    startMs: parseDateMs(fy.startDate),
+    endMs: parseDateMs(fy.endDate),
+  }));
+
+  const containingNow = enriched
+    .filter(({ startMs, endMs }) => startMs !== null && endMs !== null && startMs <= now && now <= endMs)
+    .sort((a, b) => (b.startMs ?? 0) - (a.startMs ?? 0));
+  if (containingNow.length > 0) return containingNow[0].fy;
+
+  const upcoming = enriched
+    .filter(({ startMs }) => startMs !== null && startMs > now)
+    .sort((a, b) => (a.startMs ?? 0) - (b.startMs ?? 0));
+  if (upcoming.length > 0) return upcoming[0].fy;
+
+  const past = enriched
+    .filter(({ endMs }) => endMs !== null && endMs < now)
+    .sort((a, b) => (b.endMs ?? 0) - (a.endMs ?? 0));
+  if (past.length > 0) return past[0].fy;
+
+  return [...fiscalYears].sort((a, b) => b._creationTime - a._creationTime)[0];
+}
+
 export async function getSingleActiveFiscalYear(ctx: AnyCtx) {
   const active = await listActiveFiscalYears(ctx);
   if (active.length === 0) return null;
-  if (active.length > 1) {
-    throw new Error("Data integrity error: multiple active fiscal years exist");
-  }
-  return active[0];
+  if (active.length === 1) return active[0];
+
+  // Backward-compatible recovery for datasets that include both current and future years.
+  const nonSetup = active.filter((fy) => fy.status !== "setup");
+  if (nonSetup.length > 0) return pickMostRelevantFiscalYear(nonSetup);
+  return pickMostRelevantFiscalYear(active);
 }
 
 export async function ensureCanActivateFiscalYear(
@@ -42,7 +79,9 @@ export async function ensureCanActivateFiscalYear(
   fiscalYearId: Id<"fiscalYears">,
 ) {
   const active = await listActiveFiscalYears(ctx);
-  const conflicting = active.find((fy) => fy._id !== fiscalYearId && isActiveStatus(fy.status));
+  const conflicting = active.find(
+    (fy) => fy._id !== fiscalYearId && isActiveFiscalYearStatus(fy.status),
+  );
   if (conflicting) {
     throw new Error(`Another active fiscal year already exists (${conflicting.label})`);
   }
