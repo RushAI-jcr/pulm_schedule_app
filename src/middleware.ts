@@ -72,8 +72,8 @@ function resolveSessionRole(session: Awaited<ReturnType<typeof authkit>>["sessio
     ...(session.roles ?? []).map((role) => normalizeAppRole(role)),
   ]);
 
-  // New authenticated signups default to physician access.
-  return highest ?? "physician";
+  // New authenticated signups default to viewer access until linked.
+  return highest ?? "viewer";
 }
 
 let convexClient: ConvexHttpClient | null = null;

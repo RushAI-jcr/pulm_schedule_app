@@ -3,14 +3,23 @@ import { v } from "convex/values";
 import { requireAdmin, requireAuthenticatedUser } from "../lib/auth";
 import { Id } from "../_generated/dataModel";
 import {
-  AppRole,
   getIdentityRoleClaims,
   normalizeAppRole,
-  resolveEffectiveRole,
+  resolveRoleForLinkState,
 } from "../lib/roles";
+import {
+  ensurePhysicianAlias,
+  normalizeEmail,
+  resolvePhysicianLink,
+  resolvePhysicianLinkWithAutoNameLink,
+} from "../lib/physicianLinking";
 
-function normalizeEmail(email: string): string {
-  return email.trim().toLowerCase();
+function normalizeRequiredEmail(email: string): string {
+  const normalized = normalizeEmail(email);
+  if (!normalized) {
+    throw new Error("Email is required");
+  }
+  return normalized;
 }
 
 function normalizeName(value: string): string {
@@ -27,6 +36,40 @@ function normalizeOptionalName(value: string | undefined): string | undefined {
   return normalized.length > 0 ? normalized : undefined;
 }
 
+async function assertEmailNotUsedByAnotherPhysician(args: {
+  ctx: MutationCtx;
+  email: string;
+  physicianIdToIgnore?: Id<"physicians">;
+}) {
+  const { ctx, email, physicianIdToIgnore } = args;
+
+  const physiciansWithEmail = await ctx.db
+    .query("physicians")
+    .withIndex("by_email", (q) => q.eq("email", email))
+    .collect();
+  if (
+    physiciansWithEmail.some((physician) =>
+      physicianIdToIgnore ? physician._id !== physicianIdToIgnore : true,
+    )
+  ) {
+    throw new Error("A physician with this email already exists");
+  }
+
+  const aliasesWithEmail = await ctx.db
+    .query("physicianEmailAliases")
+    .withIndex("by_email", (q) => q.eq("email", email))
+    .collect();
+  if (aliasesWithEmail.length > 1) {
+    throw new Error("Data integrity error: duplicate physician email aliases");
+  }
+  if (
+    aliasesWithEmail.length === 1 &&
+    (!physicianIdToIgnore || aliasesWithEmail[0].physicianId !== physicianIdToIgnore)
+  ) {
+    throw new Error("Email alias is already linked to another physician");
+  }
+}
+
 async function upsertUserProfile(
   ctx: MutationCtx,
   args: {
@@ -34,8 +77,8 @@ async function upsertUserProfile(
     email: string;
     firstName?: string;
     lastName?: string;
-    role: AppRole;
-    physicianId?: Id<"physicians">;
+    role: "viewer" | "physician" | "admin";
+    physicianId?: Id<"physicians"> | null;
   },
 ) {
   const existing = await ctx.db
@@ -52,12 +95,12 @@ async function upsertUserProfile(
 
   const payload = {
     workosUserId: args.workosUserId,
-    email: normalizeEmail(args.email),
+    email: normalizeRequiredEmail(args.email),
     role: args.role,
     lastLoginAt: Date.now(),
     ...(firstName ? { firstName } : {}),
     ...(lastName ? { lastName } : {}),
-    ...(args.physicianId ? { physicianId: args.physicianId } : {}),
+    ...(args.physicianId ? { physicianId: args.physicianId } : { physicianId: undefined }),
   };
 
   if (existing.length === 0) {
@@ -101,28 +144,16 @@ export const getMyProfile = query({
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) return null;
 
-    const byUserId = await ctx.db
-      .query("physicians")
-      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
-      .collect();
-
-    if (byUserId.length > 1) {
-      throw new Error("Data integrity error: duplicate physician linkage for current user");
-    }
-    if (byUserId.length === 1) return byUserId[0];
-
-    const email = identity.email;
-    if (!email) return null;
-
-    const byEmail = await ctx.db
-      .query("physicians")
-      .withIndex("by_email", (q) => q.eq("email", normalizeEmail(email)))
-      .collect();
-
-    if (byEmail.length > 1) {
-      throw new Error("Data integrity error: duplicate physician records for email");
-    }
-    return byEmail[0] ?? null;
+    const linkResolution = await resolvePhysicianLink({
+      ctx,
+      identity: {
+        subject: identity.subject,
+        email: identity.email ?? null,
+        givenName: identity.givenName ?? null,
+        familyName: identity.familyName ?? null,
+      },
+    });
+    return linkResolution.physician;
   },
 });
 
@@ -135,34 +166,40 @@ export const linkCurrentUserToPhysicianByEmail = mutation({
     if (!identity.email) {
       throw new Error("Signed-in account must have an email");
     }
-    const email = normalizeEmail(identity.email);
+    const email = normalizeRequiredEmail(identity.email);
 
-    const byUserId = await ctx.db
-      .query("physicians")
-      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
-      .unique();
-    if (byUserId && normalizeEmail(byUserId.email) !== email) {
-      throw new Error("Signed-in account already linked to another physician");
+    const linkResolution = await resolvePhysicianLink({
+      ctx,
+      identity: {
+        subject: identity.subject,
+        email,
+        givenName: identity.givenName ?? null,
+        familyName: identity.familyName ?? null,
+      },
+    });
+    const physician = linkResolution.physician;
+
+    if (!physician) {
+      if (linkResolution.unlinkedReason === "inactive_physician") {
+        throw new Error("Physician record is inactive");
+      }
+      throw new Error("No physician record matches this email");
     }
-
-    const byEmail = await ctx.db
-      .query("physicians")
-      .withIndex("by_email", (q) => q.eq("email", email))
-      .unique();
-
-    const physician = byEmail;
-
-    if (!physician) throw new Error("No physician record matches this email");
     if (physician.userId && physician.userId !== identity.subject) {
       throw new Error("Physician record already linked to another account");
-    }
-    if (!physician.isActive) {
-      throw new Error("Physician record is inactive");
     }
 
     if (physician.userId !== identity.subject) {
       await ctx.db.patch(physician._id, { userId: identity.subject });
     }
+    await ensurePhysicianAlias({
+      ctx,
+      physicianId: physician._id,
+      email,
+      source: "self_email_link",
+      createdByWorkosUserId: identity.subject,
+      isVerified: true,
+    });
 
     const existingUser = await ctx.db
       .query("users")
@@ -172,15 +209,17 @@ export const linkCurrentUserToPhysicianByEmail = mutation({
       throw new Error("Data integrity error: existing app user has unsupported role");
     }
 
-    const role = resolveEffectiveRole({
+    const role = resolveRoleForLinkState({
       appRole: existingUser?.role,
       physicianRole: physician.role,
       identityRoleClaims: getIdentityRoleClaims(identity as Record<string, unknown>),
+      hasPhysicianLink: true,
+      defaultRole: "viewer",
     });
 
     await upsertUserProfile(ctx, {
       workosUserId: identity.subject,
-      email: physician.email,
+      email,
       firstName: physician.firstName,
       lastName: physician.lastName,
       role,
@@ -197,6 +236,7 @@ export const syncWorkosSessionUser = mutation({
     email: v.string(),
     firstName: v.optional(v.string()),
     lastName: v.optional(v.string()),
+    emailVerified: v.optional(v.boolean()),
   },
   returns: v.object({
     linkedPhysicianId: v.union(v.id("physicians"), v.null()),
@@ -208,61 +248,63 @@ export const syncWorkosSessionUser = mutation({
     if (identity.subject !== args.workosUserId) {
       throw new Error("Authenticated subject does not match provided WorkOS user");
     }
-    if (identity.email && normalizeEmail(identity.email) !== normalizeEmail(args.email)) {
+    if (identity.email && normalizeRequiredEmail(identity.email) !== normalizeRequiredEmail(args.email)) {
       throw new Error("Authenticated email does not match provided WorkOS user");
     }
 
-    const email = normalizeEmail(args.email);
+    const email = normalizeRequiredEmail(args.email);
 
-    const [linkedPhysician, existingUser] = await Promise.all([
-      ctx.db
-        .query("physicians")
-        .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
-        .unique(),
-      ctx.db
-        .query("users")
-        .withIndex("by_workosUserId", (q) => q.eq("workosUserId", identity.subject))
-        .unique(),
-    ]);
-
-    if (
-      existingUser &&
-      identity.email &&
-      normalizeEmail(existingUser.email) !== normalizeEmail(identity.email)
-    ) {
-      throw new Error("Authenticated email does not match existing app profile email");
-    }
+    const existingUser = await ctx.db
+      .query("users")
+      .withIndex("by_workosUserId", (q) => q.eq("workosUserId", identity.subject))
+      .unique();
 
     if (existingUser && !normalizeAppRole(existingUser.role)) {
       throw new Error("Data integrity error: existing app user has unsupported role");
     }
 
-    let physician = linkedPhysician;
+    const linkResolution = await resolvePhysicianLinkWithAutoNameLink({
+      ctx,
+      identity: {
+        subject: identity.subject,
+        email,
+        givenName: identity.givenName ?? null,
+        familyName: identity.familyName ?? null,
+        emailVerified:
+          typeof (identity as Record<string, unknown>).emailVerified === "boolean"
+            ? ((identity as Record<string, unknown>).emailVerified as boolean)
+            : null,
+      },
+      firstName: args.firstName,
+      lastName: args.lastName,
+      emailVerified: args.emailVerified,
+    });
 
-    if (!physician) {
-      const byEmail = await ctx.db
-        .query("physicians")
-        .withIndex("by_email", (q) => q.eq("email", email))
-        .unique();
-
-      physician = byEmail;
-      if (physician) {
-        if (physician.userId && physician.userId !== identity.subject) {
-          throw new Error("Physician record already linked to another account");
-        }
-        if (!physician.isActive) {
-          throw new Error("Physician record is inactive");
-        }
-        if (physician.userId !== identity.subject) {
-          await ctx.db.patch(physician._id, { userId: identity.subject });
-        }
-      }
+    let physician = linkResolution.physician;
+    if (physician?.userId && physician.userId !== identity.subject) {
+      throw new Error("Physician record already linked to another account");
+    }
+    if (physician && physician.userId !== identity.subject) {
+      await ctx.db.patch(physician._id, { userId: identity.subject });
+      physician = { ...physician, userId: identity.subject };
+    }
+    if (physician && linkResolution.source !== "auto_name_link") {
+      await ensurePhysicianAlias({
+        ctx,
+        physicianId: physician._id,
+        email,
+        source: "self_email_link",
+        createdByWorkosUserId: identity.subject,
+        isVerified: true,
+      });
     }
 
-    const role = resolveEffectiveRole({
+    const role = resolveRoleForLinkState({
       appRole: existingUser?.role,
       physicianRole: physician?.role,
       identityRoleClaims: getIdentityRoleClaims(identity as Record<string, unknown>),
+      hasPhysicianLink: !!physician,
+      defaultRole: "viewer",
     });
 
     await upsertUserProfile(ctx, {
@@ -271,7 +313,7 @@ export const syncWorkosSessionUser = mutation({
       firstName: args.firstName ?? physician?.firstName,
       lastName: args.lastName ?? physician?.lastName,
       role,
-      physicianId: physician?._id,
+      physicianId: physician?._id ?? null,
     });
 
     return {
@@ -337,6 +379,221 @@ export const getPhysiciansByRole = query({
   },
 });
 
+export const listPhysicianEmailAliases = query({
+  args: { physicianId: v.id("physicians") },
+  returns: v.array(
+    v.object({
+      aliasId: v.union(v.id("physicianEmailAliases"), v.null()),
+      physicianId: v.id("physicians"),
+      email: v.string(),
+      isVerified: v.boolean(),
+      source: v.union(
+        v.literal("canonical"),
+        v.literal("admin"),
+        v.literal("auto_name_link"),
+        v.literal("self_email_link"),
+        v.literal("backfill"),
+      ),
+      isCanonical: v.boolean(),
+      createdAt: v.number(),
+      createdByWorkosUserId: v.union(v.string(), v.null()),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+
+    const physician = await ctx.db.get(args.physicianId);
+    if (!physician) {
+      throw new Error(`Physician not found: physicianId ${args.physicianId}`);
+    }
+
+    const canonicalEmail = normalizeRequiredEmail(physician.email);
+    const aliases = await ctx.db
+      .query("physicianEmailAliases")
+      .withIndex("by_physician", (q) => q.eq("physicianId", args.physicianId))
+      .collect();
+
+    const mappedAliases: Array<{
+      aliasId: Id<"physicianEmailAliases"> | null;
+      physicianId: Id<"physicians">;
+      email: string;
+      isVerified: boolean;
+      source: "canonical" | "admin" | "auto_name_link" | "self_email_link" | "backfill";
+      isCanonical: boolean;
+      createdAt: number;
+      createdByWorkosUserId: string | null;
+    }> = aliases.map((alias) => ({
+      aliasId: alias._id,
+      physicianId: alias.physicianId,
+      email: alias.email,
+      isVerified: alias.isVerified,
+      source: alias.source,
+      isCanonical: alias.email === canonicalEmail,
+      createdAt: alias.createdAt,
+      createdByWorkosUserId: alias.createdByWorkosUserId ?? null,
+    }));
+
+    const hasCanonicalAlias = mappedAliases.some((alias) => alias.email === canonicalEmail);
+    if (!hasCanonicalAlias) {
+      mappedAliases.unshift({
+        aliasId: null,
+        physicianId: physician._id,
+        email: canonicalEmail,
+        isVerified: true,
+        source: "canonical",
+        isCanonical: true,
+        createdAt: physician._creationTime,
+        createdByWorkosUserId: null,
+      });
+    }
+
+    mappedAliases.sort((a, b) => {
+      if (a.isCanonical && !b.isCanonical) return -1;
+      if (!a.isCanonical && b.isCanonical) return 1;
+      return a.email.localeCompare(b.email);
+    });
+
+    return mappedAliases;
+  },
+});
+
+export const addPhysicianEmailAlias = mutation({
+  args: {
+    physicianId: v.id("physicians"),
+    email: v.string(),
+  },
+  returns: v.id("physicianEmailAliases"),
+  handler: async (ctx, args) => {
+    const admin = await requireAdmin(ctx);
+    const physician = await ctx.db.get(args.physicianId);
+    if (!physician) {
+      throw new Error(`Physician not found: physicianId ${args.physicianId}`);
+    }
+
+    const email = normalizeRequiredEmail(args.email);
+    await assertEmailNotUsedByAnotherPhysician({
+      ctx,
+      email,
+      physicianIdToIgnore: args.physicianId,
+    });
+
+    const existingAlias = await ctx.db
+      .query("physicianEmailAliases")
+      .withIndex("by_physician_email", (q) =>
+        q.eq("physicianId", args.physicianId).eq("email", email),
+      )
+      .collect();
+    if (existingAlias.length > 1) {
+      throw new Error("Data integrity error: duplicate physician email aliases");
+    }
+    if (existingAlias.length === 1) {
+      if (!existingAlias[0].isVerified) {
+        await ctx.db.patch(existingAlias[0]._id, { isVerified: true });
+      }
+      return existingAlias[0]._id;
+    }
+
+    return await ctx.db.insert("physicianEmailAliases", {
+      physicianId: args.physicianId,
+      email,
+      isVerified: true,
+      source: "admin",
+      createdAt: Date.now(),
+      createdByWorkosUserId: admin.workosUserId,
+    });
+  },
+});
+
+export const removePhysicianEmailAlias = mutation({
+  args: {
+    aliasId: v.id("physicianEmailAliases"),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+
+    const alias = await ctx.db.get(args.aliasId);
+    if (!alias) {
+      throw new Error(`Alias not found: aliasId ${args.aliasId}`);
+    }
+
+    const physician = await ctx.db.get(alias.physicianId);
+    if (!physician) {
+      throw new Error("Data integrity error: physician email alias references missing physician");
+    }
+
+    if (alias.email === normalizeRequiredEmail(physician.email)) {
+      throw new Error("Cannot remove canonical email alias. Update canonical email first.");
+    }
+
+    await ctx.db.delete(args.aliasId);
+    return null;
+  },
+});
+
+export const backfillPhysicianEmailAliases = mutation({
+  args: {},
+  returns: v.object({
+    scanned: v.number(),
+    inserted: v.number(),
+    alreadyLinked: v.number(),
+    updatedToVerified: v.number(),
+  }),
+  handler: async (ctx) => {
+    const admin = await requireAdmin(ctx);
+    const physicians = await ctx.db.query("physicians").collect();
+
+    let inserted = 0;
+    let alreadyLinked = 0;
+    let updatedToVerified = 0;
+
+    for (const physician of physicians) {
+      const canonicalEmail = normalizeRequiredEmail(physician.email);
+      const aliases = await ctx.db
+        .query("physicianEmailAliases")
+        .withIndex("by_email", (q) => q.eq("email", canonicalEmail))
+        .collect();
+
+      if (aliases.length > 1) {
+        throw new Error(`Data integrity error: duplicate aliases for ${canonicalEmail}`);
+      }
+
+      if (aliases.length === 1) {
+        const alias = aliases[0];
+        if (alias.physicianId !== physician._id) {
+          throw new Error(
+            `Backfill conflict: ${canonicalEmail} already linked to another physician`,
+          );
+        }
+        if (!alias.isVerified) {
+          await ctx.db.patch(alias._id, { isVerified: true });
+          updatedToVerified += 1;
+        } else {
+          alreadyLinked += 1;
+        }
+        continue;
+      }
+
+      await ctx.db.insert("physicianEmailAliases", {
+        physicianId: physician._id,
+        email: canonicalEmail,
+        isVerified: true,
+        source: "backfill",
+        createdAt: Date.now(),
+        createdByWorkosUserId: admin.workosUserId,
+      });
+      inserted += 1;
+    }
+
+    return {
+      scanned: physicians.length,
+      inserted,
+      alreadyLinked,
+      updatedToVerified,
+    };
+  },
+});
+
 export const createPhysician = mutation({
   args: {
     firstName: v.string(),
@@ -348,22 +605,18 @@ export const createPhysician = mutation({
   },
   returns: v.id("physicians"),
   handler: async (ctx, args) => {
-    await requireAdmin(ctx);
+    const admin = await requireAdmin(ctx);
 
     const firstName = normalizeName(args.firstName);
     const lastName = normalizeName(args.lastName);
     const initials = normalizeInitials(args.initials);
-    const email = normalizeEmail(args.email);
+    const email = normalizeRequiredEmail(args.email);
 
     if (!firstName || !lastName || !initials || !email) {
       throw new Error("First name, last name, initials, and email are required");
     }
 
-    const existingByEmail = await ctx.db
-      .query("physicians")
-      .withIndex("by_email", (q) => q.eq("email", email))
-      .first();
-    if (existingByEmail) throw new Error("A physician with this email already exists");
+    await assertEmailNotUsedByAnotherPhysician({ ctx, email });
 
     const existingByInitials = await ctx.db
       .query("physicians")
@@ -371,7 +624,7 @@ export const createPhysician = mutation({
       .first();
     if (existingByInitials) throw new Error("A physician with these initials already exists");
 
-    return await ctx.db.insert("physicians", {
+    const physicianId = await ctx.db.insert("physicians", {
       firstName,
       lastName,
       initials,
@@ -380,6 +633,17 @@ export const createPhysician = mutation({
       isActive: true,
       ...(args.activeFromDate ? { activeFromDate: args.activeFromDate } : {}),
     });
+
+    await ensurePhysicianAlias({
+      ctx,
+      physicianId,
+      email,
+      source: "admin",
+      createdByWorkosUserId: admin.workosUserId,
+      isVerified: true,
+    });
+
+    return physicianId;
   },
 });
 
@@ -397,25 +661,23 @@ export const updatePhysician = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    await requireAdmin(ctx);
+    const admin = await requireAdmin(ctx);
 
     const { physicianId, ...updates } = args;
     const existing = await ctx.db.get(physicianId);
     if (!existing) throw new Error(`Physician not found: physicianId ${physicianId}`);
 
     const normalizedInitials = updates.initials ? normalizeInitials(updates.initials) : undefined;
-    const normalizedEmail = updates.email ? normalizeEmail(updates.email) : undefined;
+    const normalizedEmail = updates.email ? normalizeRequiredEmail(updates.email) : undefined;
     const normalizedFirstName = updates.firstName ? normalizeName(updates.firstName) : undefined;
     const normalizedLastName = updates.lastName ? normalizeName(updates.lastName) : undefined;
 
     if (normalizedEmail) {
-      const byEmail = await ctx.db
-        .query("physicians")
-        .withIndex("by_email", (q) => q.eq("email", normalizedEmail))
-        .collect();
-      if (byEmail.some((row) => row._id !== physicianId)) {
-        throw new Error("A physician with this email already exists");
-      }
+      await assertEmailNotUsedByAnotherPhysician({
+        ctx,
+        email: normalizedEmail,
+        physicianIdToIgnore: physicianId,
+      });
     }
 
     if (normalizedInitials) {
@@ -451,6 +713,17 @@ export const updatePhysician = mutation({
       ...(activeFromDate !== undefined ? { activeFromDate: activeFromDate || undefined } : {}),
       ...(activeUntilDate !== undefined ? { activeUntilDate: activeUntilDate || undefined } : {}),
     });
+
+    if (normalizedEmail) {
+      await ensurePhysicianAlias({
+        ctx,
+        physicianId,
+        email: normalizedEmail,
+        source: "admin",
+        createdByWorkosUserId: admin.workosUserId,
+        isVerified: true,
+      });
+    }
   },
 });
 
@@ -659,10 +932,19 @@ export const seedPhysicians = mutation({
     ];
 
     for (const physician of physicians) {
-      await ctx.db.insert("physicians", {
+      const normalizedEmail = normalizeRequiredEmail(physician.email);
+      const physicianId = await ctx.db.insert("physicians", {
         ...physician,
-        email: normalizeEmail(physician.email),
+        email: normalizedEmail,
         isActive: true,
+      });
+      await ctx.db.insert("physicianEmailAliases", {
+        physicianId,
+        email: normalizedEmail,
+        isVerified: true,
+        source: "backfill",
+        createdAt: Date.now(),
+        createdByWorkosUserId: identity.subject,
       });
     }
 

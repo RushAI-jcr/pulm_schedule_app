@@ -63,7 +63,7 @@ export function resolveEffectiveRole(args: {
     appRole,
     physicianRole,
     identityRoleClaims,
-    defaultRole = "physician",
+    defaultRole = "viewer",
   } = args;
 
   const highest = getHighestRole([
@@ -73,4 +73,27 @@ export function resolveEffectiveRole(args: {
   ]);
 
   return highest ?? defaultRole;
+}
+
+export function resolveRoleForLinkState(args: {
+  appRole: string | null | undefined;
+  physicianRole: string | null | undefined;
+  identityRoleClaims: Set<AppRole>;
+  hasPhysicianLink: boolean;
+  defaultRole?: AppRole;
+}): AppRole {
+  const normalizedAppRole = normalizeAppRole(args.appRole);
+  const effectiveAppRole = args.hasPhysicianLink
+    ? normalizedAppRole
+    : (normalizedAppRole === "admin" ? "admin" : null);
+  const effectiveIdentityClaims = new Set<AppRole>(
+    [...args.identityRoleClaims].filter((role) => args.hasPhysicianLink || role === "admin"),
+  );
+
+  return resolveEffectiveRole({
+    appRole: effectiveAppRole,
+    physicianRole: args.hasPhysicianLink ? args.physicianRole : null,
+    identityRoleClaims: effectiveIdentityClaims,
+    defaultRole: args.defaultRole ?? "viewer",
+  });
 }

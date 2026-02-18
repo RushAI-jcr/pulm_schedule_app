@@ -23,10 +23,13 @@ export const GET = handleAuth({
         email: user.email,
         ...(user.firstName ? { firstName: user.firstName } : {}),
         ...(user.lastName ? { lastName: user.lastName } : {}),
+        ...(typeof user.emailVerified === "boolean"
+          ? { emailVerified: user.emailVerified }
+          : {}),
       });
     } catch (error) {
       console.error("Failed to sync WorkOS session user with Convex", error);
     }
   },
-  returnPathname: "/dashboard",
+  returnPathname: "/calendar",
 });

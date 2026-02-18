@@ -7,6 +7,8 @@ import {
   Plus,
   Wand2,
   Upload,
+  Download,
+  Printer,
   Settings2,
   FileText,
   Undo2,
@@ -47,8 +49,34 @@ interface AutoFillMetrics {
 
 type OpState = "idle" | "creating" | "auto_assigning" | "clearing" | "publishing"
 
+function getServiceGroupLabel(rotation: { name: string; abbreviation: string }): string {
+  const name = rotation.name.trim()
+  const abbreviation = rotation.abbreviation.trim()
+  const candidate = `${name} ${abbreviation}`.toUpperCase()
+  if (candidate.includes("MICU")) return "MICU"
+  return abbreviation || name
+}
+
+function downloadCsv(filename: string, headers: string[], rows: string[][]) {
+  const csvRows = [headers, ...rows]
+    .map((row) =>
+      row
+        .map((cell) => `"${cell.replace(/"/g, '""')}"`)
+        .join(","),
+    )
+    .join("\n")
+  const blob = new Blob([csvRows], { type: "text/csv;charset=utf-8;" })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement("a")
+  link.href = url
+  link.download = filename
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
 export default function MasterCalendarPage() {
   const data = useQuery(api.functions.masterCalendar.getCurrentFiscalYearMasterCalendarDraft)
+  const clinicData = useQuery(api.functions.physicianClinics.getCurrentFiscalYearPhysicianClinics)
   const createDraft = useMutation(api.functions.masterCalendar.createCurrentFiscalYearMasterCalendarDraft)
   const assignCell = useMutation(api.functions.masterCalendar.assignCurrentFiscalYearDraftCell)
   const autoAssign = useMutation(api.functions.masterCalendar.autoAssignCurrentFiscalYearDraft)
@@ -62,6 +90,7 @@ export default function MasterCalendarPage() {
   const [error, setError] = useState<string | null>(null)
   const [lastMetrics, setLastMetrics] = useState<AutoFillMetrics | null>(null)
   const [cellPending, setCellPending] = useState<Set<string>>(new Set())
+  const [highlightPhysicianId, setHighlightPhysicianId] = useState<string | null>(null)
   const cellPendingRef = useRef(new Set<string>())
 
   const isCreating = opState === "creating"
@@ -98,6 +127,233 @@ export default function MasterCalendarPage() {
     })
     return { monthBreakSet: breakSet, monthBreaks: breaks }
   }, [data?.grid])
+
+  const serviceColumns = useMemo(() => {
+    const services = new Set<string>()
+    for (const rotation of data?.rotations ?? []) {
+      services.add(getServiceGroupLabel({ name: rotation.name, abbreviation: rotation.abbreviation }))
+    }
+    return [...services].sort((a, b) => a.localeCompare(b))
+  }, [data?.rotations])
+
+  const calendarProgress = useMemo(() => {
+    const byPhysician = new Map<string, { assignedCells: number; weeks: Set<string> }>()
+    let totalSlots = 0
+    let assignedSlots = 0
+
+    for (const weekRow of data?.grid ?? []) {
+      for (const cell of weekRow.cells) {
+        totalSlots += 1
+        if (!cell.physicianId) continue
+        assignedSlots += 1
+
+        const physicianKey = String(cell.physicianId)
+        const existing = byPhysician.get(physicianKey) ?? {
+          assignedCells: 0,
+          weeks: new Set<string>(),
+        }
+        existing.assignedCells += 1
+        existing.weeks.add(String(weekRow.weekId))
+        byPhysician.set(physicianKey, existing)
+      }
+    }
+
+    const totalWeeks = (data?.grid ?? []).length
+    const physicianRows = (data?.physicians ?? [])
+      .map((physician) => {
+        const stats = byPhysician.get(String(physician._id))
+        const assignedCells = stats?.assignedCells ?? 0
+        const assignedWeeks = stats?.weeks.size ?? 0
+        return {
+          physicianId: String(physician._id),
+          initials: physician.initials,
+          fullName: physician.fullName,
+          assignedCells,
+          assignedWeeks,
+          weekCoveragePct:
+            totalWeeks > 0 ? Math.round((assignedWeeks / totalWeeks) * 100) : 0,
+        }
+      })
+      .sort((a, b) => {
+        if (b.assignedWeeks !== a.assignedWeeks) return b.assignedWeeks - a.assignedWeeks
+        return a.initials.localeCompare(b.initials)
+      })
+
+    const selected = highlightPhysicianId
+      ? physicianRows.find((row) => row.physicianId === highlightPhysicianId) ?? null
+      : null
+    const selectedCfte = selected
+      ? data?.cfteSummary.find(
+          (row) => String(row.physicianId) === selected.physicianId,
+        ) ?? null
+      : null
+    const serviceByRotationId = new Map<string, string>()
+    const rotationCfteByRotationId = new Map<string, number>()
+    for (const rotation of data?.rotations ?? []) {
+      serviceByRotationId.set(
+        String(rotation._id),
+        getServiceGroupLabel({ name: rotation.name, abbreviation: rotation.abbreviation }),
+      )
+      rotationCfteByRotationId.set(String(rotation._id), rotation.cftePerWeek)
+    }
+    const serviceStats = new Map<string, { weeks: number; rotationCfte: number }>()
+    if (selected) {
+      for (const weekRow of data?.grid ?? []) {
+        for (const cell of weekRow.cells) {
+          if (String(cell.physicianId) !== selected.physicianId) continue
+          const service = serviceByRotationId.get(String(cell.rotationId)) ?? "Other"
+          const existing = serviceStats.get(service) ?? { weeks: 0, rotationCfte: 0 }
+          existing.weeks += 1
+          existing.rotationCfte += rotationCfteByRotationId.get(String(cell.rotationId)) ?? 0
+          serviceStats.set(service, existing)
+        }
+      }
+    }
+    const selectedServiceBreakdown = [...serviceStats.entries()]
+      .map(([service, stats]) => ({
+        service,
+        weeks: stats.weeks,
+        rotationCfte: stats.rotationCfte,
+      }))
+      .sort((a, b) => {
+        if (b.weeks !== a.weeks) return b.weeks - a.weeks
+        return a.service.localeCompare(b.service)
+      })
+
+    const clinicTypeById = new Map(
+      (clinicData?.clinicTypes ?? []).map((clinicType) => [String(clinicType._id), clinicType]),
+    )
+    const selectedClinicBreakdown = selected
+      ? (clinicData?.assignments ?? [])
+          .filter((assignment) => String(assignment.physicianId) === selected.physicianId)
+          .map((assignment) => {
+            const clinicType = clinicTypeById.get(String(assignment.clinicTypeId))
+            const annualHalfDays = assignment.halfDaysPerWeek * assignment.activeWeeks
+            return {
+              clinicName: clinicType?.name ?? "Unknown Clinic",
+              halfDaysPerWeek: assignment.halfDaysPerWeek,
+              activeWeeks: assignment.activeWeeks,
+              annualHalfDays,
+              annualClinicCfte: annualHalfDays * (clinicType?.cftePerHalfDay ?? 0),
+            }
+          })
+          .sort((a, b) => {
+            if (b.annualClinicCfte !== a.annualClinicCfte) {
+              return b.annualClinicCfte - a.annualClinicCfte
+            }
+            return a.clinicName.localeCompare(b.clinicName)
+          })
+      : []
+    const clinicHalfDaysAnnualTotal = selectedClinicBreakdown.reduce(
+      (total, row) => total + row.annualHalfDays,
+      0,
+    )
+    const clinicCfteAnnualTotal = selectedClinicBreakdown.reduce(
+      (total, row) => total + row.annualClinicCfte,
+      0,
+    )
+
+    return {
+      totalSlots,
+      assignedSlots,
+      unassignedSlots: totalSlots - assignedSlots,
+      completionPct: totalSlots > 0 ? Math.round((assignedSlots / totalSlots) * 100) : 0,
+      totalWeeks,
+      physicianRows,
+      selected,
+      selectedCfte,
+      selectedServiceBreakdown,
+      selectedClinicBreakdown,
+      clinicHalfDaysAnnualTotal,
+      clinicCfteAnnualTotal,
+    }
+  }, [
+    clinicData?.assignments,
+    clinicData?.clinicTypes,
+    data?.cfteSummary,
+    data?.grid,
+    data?.physicians,
+    data?.rotations,
+    highlightPhysicianId,
+  ])
+
+  const annualReportRows = useMemo(() => {
+    const serviceByRotationId = new Map<string, string>()
+    for (const rotation of data?.rotations ?? []) {
+      serviceByRotationId.set(
+        String(rotation._id),
+        getServiceGroupLabel({ name: rotation.name, abbreviation: rotation.abbreviation }),
+      )
+    }
+
+    const serviceWeeksByPhysician = new Map<string, Map<string, number>>()
+    for (const weekRow of data?.grid ?? []) {
+      for (const cell of weekRow.cells) {
+        if (!cell.physicianId) continue
+        const physicianId = String(cell.physicianId)
+        const service = serviceByRotationId.get(String(cell.rotationId)) ?? "Other"
+        const existingServiceMap = serviceWeeksByPhysician.get(physicianId) ?? new Map<string, number>()
+        existingServiceMap.set(service, (existingServiceMap.get(service) ?? 0) + 1)
+        serviceWeeksByPhysician.set(physicianId, existingServiceMap)
+      }
+    }
+
+    const clinicHalfDaysByPhysician = new Map<string, number>()
+    for (const assignment of clinicData?.assignments ?? []) {
+      const physicianId = String(assignment.physicianId)
+      const annualHalfDays = assignment.halfDaysPerWeek * assignment.activeWeeks
+      clinicHalfDaysByPhysician.set(
+        physicianId,
+        (clinicHalfDaysByPhysician.get(physicianId) ?? 0) + annualHalfDays,
+      )
+    }
+
+    const cfteByPhysician = new Map(
+      (data?.cfteSummary ?? []).map((row) => [String(row.physicianId), row]),
+    )
+    const workloadByPhysician = new Map(
+      calendarProgress.physicianRows.map((row) => [row.physicianId, row]),
+    )
+
+    return (data?.physicians ?? [])
+      .map((physician) => {
+        const physicianId = String(physician._id)
+        const cfte = cfteByPhysician.get(physicianId) ?? null
+        const workload = workloadByPhysician.get(physicianId)
+        const serviceWeeksMap = serviceWeeksByPhysician.get(physicianId) ?? new Map<string, number>()
+        const serviceWeeks: Record<string, number> = {}
+        for (const service of serviceColumns) {
+          serviceWeeks[service] = serviceWeeksMap.get(service) ?? 0
+        }
+        return {
+          physicianId,
+          physicianName: physician.fullName,
+          initials: physician.initials,
+          assignedWeeks: workload?.assignedWeeks ?? 0,
+          assignedSlots: workload?.assignedCells ?? 0,
+          coveragePct: workload?.weekCoveragePct ?? 0,
+          serviceWeeks,
+          clinicHalfDaysAnnual: clinicHalfDaysByPhysician.get(physicianId) ?? 0,
+          rotationCfte: cfte?.rotationCfte ?? 0,
+          clinicCfte: cfte?.clinicCfte ?? 0,
+          totalCfte: cfte?.totalCfte ?? 0,
+          targetCfte: cfte?.targetCfte ?? null,
+          targetMet:
+            cfte?.targetCfte !== null && cfte?.targetCfte !== undefined
+              ? !cfte.isOverTarget
+              : null,
+        }
+      })
+      .sort((a, b) => a.physicianName.localeCompare(b.physicianName))
+  }, [
+    calendarProgress.physicianRows,
+    clinicData?.assignments,
+    data?.cfteSummary,
+    data?.grid,
+    data?.physicians,
+    data?.rotations,
+    serviceColumns,
+  ])
 
   if (data === undefined) {
     return (
@@ -199,6 +455,44 @@ export default function MasterCalendarPage() {
     }
   }
 
+  const handleExportAnnualReport = () => {
+    if (!data?.fiscalYear || annualReportRows.length === 0) return
+    const headers = [
+      "Physician",
+      "Initials",
+      "Assigned Weeks",
+      "Assigned Slots",
+      "Week Coverage %",
+      ...serviceColumns.map((service) => `${service} Weeks`),
+      "Rotation cFTE",
+      "Clinic Half-Days (Annual)",
+      "Clinic cFTE",
+      "Total cFTE",
+      "Target cFTE",
+      "Target Met",
+    ]
+    const rows = annualReportRows.map((row) => [
+      row.physicianName,
+      row.initials,
+      String(row.assignedWeeks),
+      String(row.assignedSlots),
+      String(row.coveragePct),
+      ...serviceColumns.map((service) => String(row.serviceWeeks[service] ?? 0)),
+      row.rotationCfte.toFixed(2),
+      String(row.clinicHalfDaysAnnual),
+      row.clinicCfte.toFixed(2),
+      row.totalCfte.toFixed(2),
+      row.targetCfte === null ? "N/A" : row.targetCfte.toFixed(2),
+      row.targetMet === null ? "N/A" : row.targetMet ? "Yes" : "No",
+    ])
+    const safeLabel = data.fiscalYear.label.replace(/[^a-z0-9-]+/gi, "-").toLowerCase()
+    downloadCsv(`master-calendar-annual-report-${safeLabel}.csv`, headers, rows)
+  }
+
+  const handlePrintAnnualReport = () => {
+    window.print()
+  }
+
   const hasDraft = !!data.calendar
   const isDraft = data.calendar?.status === "draft"
 
@@ -291,6 +585,240 @@ export default function MasterCalendarPage() {
           />
         ) : (
           <>
+            {/* Admin progress + physician highlight controls */}
+            <div className="rounded-lg border bg-card p-4 space-y-4">
+              <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+                <MetricCard label="Coverage" value={`${calendarProgress.completionPct}%`} />
+                <MetricCard label="Assigned" value={String(calendarProgress.assignedSlots)} />
+                <MetricCard label="Unassigned" value={String(calendarProgress.unassignedSlots)} />
+                <MetricCard label="Weeks" value={String(calendarProgress.totalWeeks)} />
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-sm font-semibold">Physician Workload Focus</h3>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setHighlightPhysicianId(null)}
+                    disabled={!highlightPhysicianId}
+                  >
+                    Clear highlight
+                  </Button>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  {calendarProgress.physicianRows.map((row) => {
+                    const isSelected = highlightPhysicianId === row.physicianId
+                    return (
+                      <button
+                        key={row.physicianId}
+                        type="button"
+                        onClick={() =>
+                          setHighlightPhysicianId((current) =>
+                            current === row.physicianId ? null : row.physicianId,
+                          )
+                        }
+                        className={cn(
+                          "inline-flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs transition-colors",
+                          isSelected
+                            ? "border-primary bg-primary/10 text-foreground"
+                            : "border-border bg-background hover:bg-muted/50",
+                        )}
+                      >
+                        <span className="font-semibold">{row.initials}</span>
+                        <span className="text-muted-foreground">{row.assignedWeeks}w</span>
+                      </button>
+                    )
+                  })}
+                </div>
+
+                {calendarProgress.selected && (
+                  <div className="rounded-md border bg-muted/20 px-3 py-2 text-sm">
+                    <p className="font-medium">{calendarProgress.selected.fullName}</p>
+                    <p className="text-muted-foreground">
+                      {calendarProgress.selected.assignedWeeks} assigned weeks,{" "}
+                      {calendarProgress.selected.assignedCells} assignment slots,{" "}
+                      {calendarProgress.selected.weekCoveragePct}% week coverage
+                      {calendarProgress.selectedCfte && (
+                        <>
+                          {" · "}cFTE {calendarProgress.selectedCfte.totalCfte.toFixed(2)}
+                          {calendarProgress.selectedCfte.targetCfte !== null &&
+                            ` / ${calendarProgress.selectedCfte.targetCfte.toFixed(2)}`}
+                        </>
+                      )}
+                    </p>
+                    {calendarProgress.selectedCfte && (
+                      <div className="mt-2 rounded-md border bg-background px-2.5 py-2 text-xs">
+                        <p className="text-muted-foreground">
+                          Rotation cFTE {calendarProgress.selectedCfte.rotationCfte.toFixed(2)} + Clinic cFTE{" "}
+                          {calendarProgress.selectedCfte.clinicCfte.toFixed(2)} = Total{" "}
+                          {calendarProgress.selectedCfte.totalCfte.toFixed(2)}
+                          {calendarProgress.selectedCfte.targetCfte !== null &&
+                            ` / Target ${calendarProgress.selectedCfte.targetCfte.toFixed(2)}`}
+                        </p>
+                        <p
+                          className={cn(
+                            "mt-1 font-semibold",
+                            calendarProgress.selectedCfte.targetCfte === null
+                              ? "text-muted-foreground"
+                              : calendarProgress.selectedCfte.isOverTarget
+                                ? "text-rose-600"
+                                : "text-emerald-600",
+                          )}
+                        >
+                          Target met:{" "}
+                          {calendarProgress.selectedCfte.targetCfte === null
+                            ? "No target set"
+                            : calendarProgress.selectedCfte.isOverTarget
+                              ? "No"
+                              : "Yes"}
+                        </p>
+                      </div>
+                    )}
+                    <div className="mt-2 rounded-md border bg-background px-2.5 py-2">
+                      <p className="text-xs font-semibold">Rotation Weeks by Service</p>
+                      {calendarProgress.selectedServiceBreakdown.length > 0 ? (
+                        <div className="mt-1 space-y-1">
+                          {calendarProgress.selectedServiceBreakdown.map((row) => (
+                            <div
+                              key={row.service}
+                              className="grid grid-cols-[1fr_auto_auto] items-center gap-2 text-xs"
+                            >
+                              <span className="font-medium">{row.service}</span>
+                              <span className="text-muted-foreground">{row.weeks}w</span>
+                              <span className="tabular-nums">{row.rotationCfte.toFixed(2)} cFTE</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="mt-1 text-xs text-muted-foreground">No rotation assignments yet.</p>
+                      )}
+                    </div>
+                    <div className="mt-2 rounded-md border bg-background px-2.5 py-2">
+                      <p className="text-xs font-semibold">Clinic cFTE (Annual)</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {calendarProgress.clinicHalfDaysAnnualTotal} half-days total ·{" "}
+                        {calendarProgress.clinicCfteAnnualTotal.toFixed(2)} clinic cFTE
+                      </p>
+                      {calendarProgress.selectedClinicBreakdown.length > 0 ? (
+                        <div className="mt-1 space-y-1">
+                          {calendarProgress.selectedClinicBreakdown.map((row) => (
+                            <div
+                              key={row.clinicName}
+                              className="grid grid-cols-[1fr_auto_auto] items-center gap-2 text-xs"
+                            >
+                              <span className="font-medium">{row.clinicName}</span>
+                              <span className="text-muted-foreground">
+                                {row.halfDaysPerWeek} hd/wk x {row.activeWeeks}w
+                              </span>
+                              <span className="tabular-nums">{row.annualClinicCfte.toFixed(2)} cFTE</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="mt-1 text-xs text-muted-foreground">No clinic assignments set.</p>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-lg border bg-card p-4 space-y-3">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h3 className="text-sm font-semibold">Annual Workload Report</h3>
+                  <p className="text-xs text-muted-foreground">
+                    Weeks per service, annual rotation/clinic cFTE, and target attainment by physician.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleExportAnnualReport}
+                    disabled={annualReportRows.length === 0}
+                  >
+                    <Download className="mr-1 h-4 w-4" />
+                    Export CSV
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handlePrintAnnualReport}
+                    disabled={annualReportRows.length === 0}
+                  >
+                    <Printer className="mr-1 h-4 w-4" />
+                    Print / PDF
+                  </Button>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto rounded-md border">
+                <table className="min-w-[1100px] w-full text-xs">
+                  <thead className="bg-muted/40">
+                    <tr className="border-b">
+                      <th className="px-2 py-2 text-left font-semibold">Physician</th>
+                      <th className="px-2 py-2 text-left font-semibold">Init</th>
+                      <th className="px-2 py-2 text-right font-semibold">Weeks</th>
+                      <th className="px-2 py-2 text-right font-semibold">Slots</th>
+                      <th className="px-2 py-2 text-right font-semibold">Coverage %</th>
+                      {serviceColumns.map((service) => (
+                        <th key={service} className="px-2 py-2 text-right font-semibold whitespace-nowrap">
+                          {service} w
+                        </th>
+                      ))}
+                      <th className="px-2 py-2 text-right font-semibold whitespace-nowrap">Rotation cFTE</th>
+                      <th className="px-2 py-2 text-right font-semibold whitespace-nowrap">Clinic Half-Days</th>
+                      <th className="px-2 py-2 text-right font-semibold whitespace-nowrap">Clinic cFTE</th>
+                      <th className="px-2 py-2 text-right font-semibold whitespace-nowrap">Total cFTE</th>
+                      <th className="px-2 py-2 text-right font-semibold whitespace-nowrap">Target</th>
+                      <th className="px-2 py-2 text-right font-semibold whitespace-nowrap">Met</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {annualReportRows.map((row) => (
+                      <tr key={row.physicianId} className="border-b last:border-b-0">
+                        <td className="px-2 py-1.5 font-medium whitespace-nowrap">{row.physicianName}</td>
+                        <td className="px-2 py-1.5">{row.initials}</td>
+                        <td className="px-2 py-1.5 text-right tabular-nums">{row.assignedWeeks}</td>
+                        <td className="px-2 py-1.5 text-right tabular-nums">{row.assignedSlots}</td>
+                        <td className="px-2 py-1.5 text-right tabular-nums">{row.coveragePct}</td>
+                        {serviceColumns.map((service) => (
+                          <td key={`${row.physicianId}-${service}`} className="px-2 py-1.5 text-right tabular-nums">
+                            {row.serviceWeeks[service] ?? 0}
+                          </td>
+                        ))}
+                        <td className="px-2 py-1.5 text-right tabular-nums">{row.rotationCfte.toFixed(2)}</td>
+                        <td className="px-2 py-1.5 text-right tabular-nums">{row.clinicHalfDaysAnnual}</td>
+                        <td className="px-2 py-1.5 text-right tabular-nums">{row.clinicCfte.toFixed(2)}</td>
+                        <td className="px-2 py-1.5 text-right tabular-nums">{row.totalCfte.toFixed(2)}</td>
+                        <td className="px-2 py-1.5 text-right tabular-nums">
+                          {row.targetCfte === null ? "N/A" : row.targetCfte.toFixed(2)}
+                        </td>
+                        <td
+                          className={cn(
+                            "px-2 py-1.5 text-right font-semibold",
+                            row.targetMet === null
+                              ? "text-muted-foreground"
+                              : row.targetMet
+                                ? "text-emerald-600"
+                                : "text-rose-600",
+                          )}
+                        >
+                          {row.targetMet === null ? "N/A" : row.targetMet ? "Yes" : "No"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Use Print / PDF to save this table as a PDF from your browser dialog.
+              </p>
+            </div>
+
             {/* cFTE Summary */}
             {data.cfteSummary.length > 0 && (
               <div className="overflow-x-auto rounded-lg border">
@@ -411,6 +939,11 @@ export default function MasterCalendarPage() {
 
                         const cellKey = `${String(weekRow.weekId)}:${String(rotation._id)}`
                         const isCellPending = cellPending.has(cellKey)
+                        const isSelected = !!highlightPhysicianId && currentPhysicianId === highlightPhysicianId
+                        const isDimmed =
+                          !!highlightPhysicianId &&
+                          !!currentPhysicianId &&
+                          currentPhysicianId !== highlightPhysicianId
 
                         return (
                           <div
@@ -432,6 +965,8 @@ export default function MasterCalendarPage() {
                                         accent.borderL
                                       )
                                     : "border border-dashed border-muted-foreground/30 bg-transparent text-muted-foreground/40",
+                                  isSelected && "ring-1 ring-primary/60 bg-primary/10",
+                                  isDimmed && "opacity-35",
                                   !isDraft && "opacity-50"
                                 )}
                               >
@@ -494,5 +1029,14 @@ export default function MasterCalendarPage() {
         physicians={data.physicians.map((p) => ({ _id: p._id, initials: p.initials, lastName: p.fullName.split(" ").pop() ?? "" }))}
       />
     </>
+  )
+}
+
+function MetricCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md border bg-background px-3 py-2">
+      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
+      <p className="text-lg font-semibold">{value}</p>
+    </div>
   )
 }

@@ -44,6 +44,7 @@ import type * as lib_masterCalendar from "../lib/masterCalendar.js";
 import type * as lib_masterCalendarAssignments from "../lib/masterCalendarAssignments.js";
 import type * as lib_masterCalendarPublish from "../lib/masterCalendarPublish.js";
 import type * as lib_physicianClinics from "../lib/physicianClinics.js";
+import type * as lib_physicianLinking from "../lib/physicianLinking.js";
 import type * as lib_rateLimit from "../lib/rateLimit.js";
 import type * as lib_roles from "../lib/roles.js";
 import type * as lib_rotationPreferenceReadiness from "../lib/rotationPreferenceReadiness.js";
@@ -96,6 +97,7 @@ declare const fullApi: ApiFromModules<{
   "lib/masterCalendarAssignments": typeof lib_masterCalendarAssignments;
   "lib/masterCalendarPublish": typeof lib_masterCalendarPublish;
   "lib/physicianClinics": typeof lib_physicianClinics;
+  "lib/physicianLinking": typeof lib_physicianLinking;
   "lib/rateLimit": typeof lib_rateLimit;
   "lib/roles": typeof lib_roles;
   "lib/rotationPreferenceReadiness": typeof lib_rotationPreferenceReadiness;

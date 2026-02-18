@@ -2,6 +2,7 @@
 
 import { Authenticated, Unauthenticated, useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/data/convex";
+import type { Id } from "../../../../convex/_generated/dataModel";
 import { SignInForm } from "@/features/auth/components/SignInForm";
 import { SignOutButton } from "@/features/auth/components/SignOutButton";
 import { ThemeToggle } from "@/shared/components/theme/ThemeToggle";
@@ -33,6 +34,149 @@ type ImportTargetPhysician = {
 type FiscalWeekLite = {
   startDate: string;
 };
+
+type ConvexReturn<T extends { _returnType: unknown }> = T["_returnType"];
+type PhysiciansBundle = ConvexReturn<typeof api.functions.physicians.getPhysicians>;
+type FiscalYearsBundle = ConvexReturn<typeof api.functions.fiscalYears.getFiscalYears>;
+type CurrentFiscalYearBundle = ConvexReturn<typeof api.functions.fiscalYears.getCurrentFiscalYear>;
+type PublishedMasterCalendarBundle = ConvexReturn<
+  typeof api.functions.masterCalendar.getCurrentFiscalYearPublishedMasterCalendar
+>;
+type AdminRotationsBundle = ConvexReturn<typeof api.functions.rotations.getCurrentFiscalYearRotations>;
+type AdminClinicTypesBundle = ConvexReturn<typeof api.functions.clinicTypes.getCurrentFiscalYearClinicTypes>;
+type AdminCfteTargetsBundle = ConvexReturn<typeof api.functions.cfteTargets.getCurrentFiscalYearCfteTargets>;
+type AdminClinicAssignmentsBundle = ConvexReturn<
+  typeof api.functions.physicianClinics.getCurrentFiscalYearPhysicianClinics
+>;
+type AdminMasterCalendarBundle = ConvexReturn<
+  typeof api.functions.masterCalendar.getCurrentFiscalYearMasterCalendarDraft
+>;
+type PhysicianRequestBundle = ConvexReturn<typeof api.functions.scheduleRequests.getMyScheduleRequest>;
+type RotationPreferencesBundle = ConvexReturn<typeof api.functions.rotationPreferences.getMyRotationPreferences>;
+type CurrentWeeksBundle = ConvexReturn<typeof api.functions.scheduleRequests.getCurrentFiscalYearWeeks>;
+type TradeOptionsBundle = ConvexReturn<typeof api.functions.tradeRequests.getTradeProposalOptions>;
+type MyTradesBundle = ConvexReturn<typeof api.functions.tradeRequests.getMyTrades>;
+type AdminRotationPreferenceBundle = ConvexReturn<
+  typeof api.functions.rotationPreferences.getAdminRotationPreferenceMatrix
+>;
+type AdminRequestBundle = ConvexReturn<typeof api.functions.scheduleRequests.getAdminScheduleRequests>;
+type AdminTradeQueueBundle = ConvexReturn<typeof api.functions.tradeRequests.getAdminTradeQueue>;
+type CalendarEventsBundle = ConvexReturn<typeof api.functions.calendarEvents.getCurrentFiscalYearCalendarEvents>;
+type ConferenceBundle = ConvexReturn<
+  typeof api.functions.calendarEvents.getCurrentFiscalYearInstitutionalConferences
+>;
+type SeedMutationReference =
+  | typeof api.functions.physicians.seedPhysicians
+  | typeof api.functions.fiscalYears.seedFY27;
+
+type RotationPreferenceMode = "do_not_assign" | "deprioritize" | "willing" | "preferred";
+type FiscalYearStatus = "setup" | "collecting" | "building" | "published" | "archived";
+type MutationReference = Parameters<typeof useMutation>[0];
+const fiscalYearStatuses: FiscalYearStatus[] = ["setup", "collecting", "building", "published", "archived"];
+
+type ClinicAssignmentRecord = {
+  physicianId: Id<"physicians">;
+  clinicTypeId: Id<"clinicTypes">;
+  halfDaysPerWeek: number;
+  activeWeeks: number;
+};
+
+type ClinicAssignmentsBundle = {
+  fiscalYear:
+    | { _id: Id<"fiscalYears">; label: string; status: FiscalYearStatus }
+    | null;
+  physicians: Array<{ _id: Id<"physicians">; fullName: string; initials: string }>;
+  clinicTypes: Array<{ _id: Id<"clinicTypes">; name: string; cftePerHalfDay: number }>;
+  assignments: ClinicAssignmentRecord[];
+};
+
+type CfteSummaryRow = {
+  physicianId: Id<"physicians">;
+  rotationCfte: number;
+  clinicCfte: number;
+  totalCfte: number;
+  targetCfte: number | null;
+  isOverTarget: boolean;
+};
+
+type TradeAssignmentOption = {
+  assignmentId: Id<"assignments">;
+  weekLabel: string;
+  rotationLabel: string;
+  physicianName: string;
+};
+
+type TradeProposalOptions = {
+  enabled: boolean;
+  reason: string | null;
+  myAssignments: TradeAssignmentOption[];
+  availableAssignments: TradeAssignmentOption[];
+} | null | undefined;
+
+type TradeRow = {
+  _id: Id<"tradeRequests">;
+  requestingPhysicianId: Id<"physicians">;
+  targetPhysicianId: Id<"physicians">;
+  requesterWeekLabel: string;
+  requesterRotationLabel: string;
+  targetWeekLabel: string;
+  targetRotationLabel: string;
+  requesterName: string;
+  targetName: string;
+  status: string;
+};
+
+type ConferenceRow = {
+  name: string;
+  date: string | null;
+};
+
+type ReligiousEventRow = {
+  _id: Id<"calendarEvents">;
+  date: string;
+  name: string;
+  category: string;
+  source: string;
+  isApproved: boolean;
+  weekId?: Id<"weeks"> | null;
+};
+
+type AdminActionsCurrentFY = {
+  _id: Id<"fiscalYears">;
+  label: string;
+  status: FiscalYearStatus;
+} | null | undefined;
+
+type WeekPreferenceRow = PhysicianRequestBundle["weekPreferences"][number];
+type RotationPreferenceValue = RotationPreferencesBundle["rotations"][number]["preference"];
+
+function isFiscalYearStatus(value: unknown): value is FiscalYearStatus {
+  return typeof value === "string" && fiscalYearStatuses.includes(value as FiscalYearStatus);
+}
+
+function toPhysicianId(value: string): Id<"physicians"> {
+  return value as Id<"physicians">;
+}
+
+function toClinicTypeId(value: string): Id<"clinicTypes"> {
+  return value as Id<"clinicTypes">;
+}
+
+function toWeekId(value: string): Id<"weeks"> {
+  return value as Id<"weeks">;
+}
+
+function toRotationId(value: string): Id<"rotations"> {
+  return value as Id<"rotations">;
+}
+
+function toAssignmentId(value: string): Id<"assignments"> {
+  return value as Id<"assignments">;
+}
+
+function toTradeRequestId(value: string): Id<"tradeRequests"> {
+  return value as Id<"tradeRequests">;
+}
 
 function validateParsedUpload(params: {
   payload: ParsedUploadPayload | null;
@@ -267,7 +411,7 @@ function Dashboard() {
         physicians={physicians}
         fiscalYears={fiscalYears}
         currentFY={currentFY}
-        publishedMasterCalendarBundle={publishedMasterCalendarBundle}
+        publishedMasterCalendarBundle={publishedMasterCalendarBundle ?? null}
       />
     );
   }
@@ -336,15 +480,15 @@ function Dashboard() {
       ) : null}
 
       {showAdminRotationsPage ? (
-        <AdminRotationsPage bundle={adminRotationsBundle} />
+        <AdminRotationsPage bundle={adminRotationsBundle!} />
       ) : showAdminClinicTypesPage ? (
-        <AdminClinicTypesPage bundle={adminClinicTypesBundle} />
+        <AdminClinicTypesPage bundle={adminClinicTypesBundle!} />
       ) : showAdminCfteTargetsPage ? (
-        <AdminCfteTargetsPage bundle={adminCfteTargetsBundle} />
+        <AdminCfteTargetsPage bundle={adminCfteTargetsBundle!} />
       ) : showAdminClinicAssignmentsPage ? (
-        <AdminClinicAssignmentsPage bundle={adminClinicAssignmentsBundle} />
+        <AdminClinicAssignmentsPage bundle={adminClinicAssignmentsBundle!} />
       ) : showAdminMasterCalendarPage ? (
-        <AdminMasterCalendarPage bundle={adminMasterCalendarBundle} />
+        <AdminMasterCalendarPage bundle={adminMasterCalendarBundle!} />
       ) : showAdminAuditLogPage ? (
         <AdminAuditLogPage />
       ) : (
@@ -364,10 +508,10 @@ function Dashboard() {
               {hasPhysicianProfile ? (
                 <>
                   <PhysicianRequestPanel
-                    myRequestBundle={myRequestBundle}
-                    myRotationPreferenceBundle={myRotationPreferenceBundle}
-                    currentWeekBundle={currentWeekBundle}
-                    myProfile={myProfile}
+                    myRequestBundle={myRequestBundle!}
+                    myRotationPreferenceBundle={myRotationPreferenceBundle!}
+                    currentWeekBundle={currentWeekBundle!}
+                    myProfile={myProfile!}
                   />
                   <TradePanel
                     myPhysicianId={String(myProfile!._id)}
@@ -390,7 +534,7 @@ function Dashboard() {
               {isAdmin ? <AdminRequestQueue adminRequestBundle={adminRequestBundle!} /> : null}
               {isAdmin ? <AdminTradeQueue trades={adminTradeQueue ?? []} /> : null}
               {isAdmin ? (
-                <AdminRotationPreferencePanel bundle={adminRotationPreferenceBundle} />
+                <AdminRotationPreferencePanel bundle={adminRotationPreferenceBundle!} />
               ) : null}
               <AdminActions isAdmin={isAdmin} currentFY={currentFY} />
             </div>
@@ -407,16 +551,18 @@ function ViewerDashboard({
   currentFY,
   publishedMasterCalendarBundle,
 }: {
-  physicians: any[];
-  fiscalYears: any[];
-  currentFY: any;
-  publishedMasterCalendarBundle: any;
+  physicians: PhysiciansBundle | null | undefined;
+  fiscalYears: FiscalYearsBundle | null | undefined;
+  currentFY: CurrentFiscalYearBundle | null | undefined;
+  publishedMasterCalendarBundle: PublishedMasterCalendarBundle | null | undefined;
 }) {
+  const physicianRows = physicians ?? [];
+  const fiscalYearRows = fiscalYears ?? [];
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <MetricCard label="Physicians" value={String(physicians.length)} />
-        <MetricCard label="Fiscal Years" value={String(fiscalYears.length)} />
+        <MetricCard label="Physicians" value={String(physicianRows.length)} />
+        <MetricCard label="Fiscal Years" value={String(fiscalYearRows.length)} />
         <MetricCard
           label="Current Cycle"
           value={currentFY ? currentFY.label : "Not set"}
@@ -443,7 +589,7 @@ function ViewerDashboard({
               <thead className="bg-gray-50 text-gray-600">
                 <tr>
                   <th className="text-left px-3 py-2">Week</th>
-                  {(publishedMasterCalendarBundle.rotations ?? []).map((rotation: any) => (
+                  {(publishedMasterCalendarBundle.rotations ?? []).map((rotation) => (
                     <th key={String(rotation._id)} className="text-left px-3 py-2">
                       <div className="font-medium">{rotation.abbreviation}</div>
                       <div className="text-[11px] text-gray-500">{rotation.name}</div>
@@ -452,7 +598,7 @@ function ViewerDashboard({
                 </tr>
               </thead>
               <tbody>
-                {(publishedMasterCalendarBundle.grid ?? []).map((row: any) => (
+                {(publishedMasterCalendarBundle.grid ?? []).map((row) => (
                   <tr key={String(row.weekId)} className="border-t border-gray-100 align-top">
                     <td className="px-3 py-2 whitespace-nowrap">
                       <div className="font-medium">W{row.weekNumber}</div>
@@ -460,7 +606,7 @@ function ViewerDashboard({
                         {row.startDate} to {row.endDate}
                       </div>
                     </td>
-                    {(row.cells ?? []).map((cell: any) => (
+                    {(row.cells ?? []).map((cell) => (
                       <td key={String(cell.rotationId)} className="px-3 py-2">
                         <div className="font-medium">{cell.physicianInitials ?? "--"}</div>
                         <div className="text-[11px] text-gray-500">{cell.physicianName ?? "Unassigned"}</div>
@@ -489,7 +635,7 @@ function AdminNoPhysicianProfileNotice() {
   );
 }
 
-function AdminRotationsPage({ bundle }: { bundle: any }) {
+function AdminRotationsPage({ bundle }: { bundle: AdminRotationsBundle | null | undefined }) {
   const createRotation = useMutation(api.functions.rotations.createRotation);
   const setRotationActive = useMutation(api.functions.rotations.setRotationActive);
 
@@ -637,7 +783,7 @@ function AdminRotationsPage({ bundle }: { bundle: any }) {
                   </td>
                 </tr>
               ) : (
-                bundle.rotations.map((rotation: any) => (
+                bundle.rotations.map((rotation) => (
                   <tr key={String(rotation._id)} className="border-t border-gray-100">
                     <td className="px-3 py-2">{rotation.sortOrder}</td>
                     <td className="px-3 py-2">
@@ -680,7 +826,7 @@ function AdminRotationsPage({ bundle }: { bundle: any }) {
   );
 }
 
-function AdminClinicTypesPage({ bundle }: { bundle: any }) {
+function AdminClinicTypesPage({ bundle }: { bundle: AdminClinicTypesBundle | null | undefined }) {
   const createClinicType = useMutation(api.functions.clinicTypes.createClinicType);
   const setClinicTypeActive = useMutation(api.functions.clinicTypes.setClinicTypeActive);
   const [name, setName] = useState("");
@@ -697,7 +843,7 @@ function AdminClinicTypesPage({ bundle }: { bundle: any }) {
   }
 
   const existingNames = new Set(
-    (bundle.clinicTypes ?? []).map((clinicType: any) => clinicType.name.trim().toLowerCase()),
+    (bundle.clinicTypes ?? []).map((clinicType) => clinicType.name.trim().toLowerCase()),
   );
 
   return (
@@ -816,7 +962,7 @@ function AdminClinicTypesPage({ bundle }: { bundle: any }) {
                   </td>
                 </tr>
               ) : (
-                bundle.clinicTypes.map((clinicType: any) => (
+                bundle.clinicTypes.map((clinicType) => (
                   <tr key={String(clinicType._id)} className="border-t border-gray-100">
                     <td className="px-3 py-2 font-medium">{clinicType.name}</td>
                     <td className="px-3 py-2">{clinicType.cftePerHalfDay}</td>
@@ -852,7 +998,7 @@ function AdminClinicTypesPage({ bundle }: { bundle: any }) {
   );
 }
 
-function AdminCfteTargetsPage({ bundle }: { bundle: any }) {
+function AdminCfteTargetsPage({ bundle }: { bundle: AdminCfteTargetsBundle | null | undefined }) {
   const upsertTarget = useMutation(api.functions.cfteTargets.upsertCurrentFiscalYearCfteTarget);
   const [draftTargets, setDraftTargets] = useState<Record<string, string>>({});
   const [isSaving, setIsSaving] = useState(false);
@@ -875,7 +1021,7 @@ function AdminCfteTargetsPage({ bundle }: { bundle: any }) {
     );
   }
 
-  const changedRows = (bundle.targets ?? []).filter((row: any) => {
+  const changedRows = (bundle.targets ?? []).filter((row) => {
     const draft = draftTargets[String(row.physicianId)] ?? "";
     const current = row.targetCfte === null ? "" : String(row.targetCfte);
     return draft !== current;
@@ -962,7 +1108,7 @@ function AdminCfteTargetsPage({ bundle }: { bundle: any }) {
                   </td>
                 </tr>
               ) : (
-                (bundle.targets ?? []).map((row: any) => (
+                (bundle.targets ?? []).map((row) => (
                   <tr key={String(row.physicianId)} className="border-t border-gray-100">
                     <td className="px-3 py-2">
                       <div className="font-medium">{row.physicianName}</div>
@@ -999,7 +1145,11 @@ function AdminCfteTargetsPage({ bundle }: { bundle: any }) {
   );
 }
 
-function AdminClinicAssignmentsPage({ bundle }: { bundle: any }) {
+function AdminClinicAssignmentsPage({
+  bundle,
+}: {
+  bundle: ClinicAssignmentsBundle | null | undefined;
+}) {
   const upsertAssignment = useMutation(api.functions.physicianClinics.upsertPhysicianClinicAssignment);
   const removeAssignment = useMutation(api.functions.physicianClinics.removePhysicianClinicAssignment);
   const [draft, setDraft] = useState<Record<string, { halfDaysPerWeek: string; activeWeeks: string }>>({});
@@ -1007,8 +1157,8 @@ function AdminClinicAssignmentsPage({ bundle }: { bundle: any }) {
 
   useEffect(() => {
     if (!bundle?.physicians || !bundle?.clinicTypes) return;
-    const assignmentByKey = new Map<string, any>(
-      (bundle.assignments ?? []).map((assignment: any) => [
+    const assignmentByKey = new Map<string, ClinicAssignmentRecord>(
+      (bundle.assignments ?? []).map((assignment) => [
         `${String(assignment.physicianId)}:${String(assignment.clinicTypeId)}`,
         assignment,
       ]),
@@ -1037,8 +1187,8 @@ function AdminClinicAssignmentsPage({ bundle }: { bundle: any }) {
     );
   }
 
-  const assignmentByKey = new Map<string, any>(
-    (bundle.assignments ?? []).map((assignment: any) => [
+  const assignmentByKey = new Map<string, ClinicAssignmentRecord>(
+    (bundle.assignments ?? []).map((assignment) => [
       `${String(assignment.physicianId)}:${String(assignment.clinicTypeId)}`,
       assignment,
     ]),
@@ -1072,16 +1222,16 @@ function AdminClinicAssignmentsPage({ bundle }: { bundle: any }) {
 
         if (nextHalfDays === 0 || nextWeeks === 0) {
           await removeAssignment({
-            physicianId: physicianId as any,
-            clinicTypeId: clinicTypeId as any,
+            physicianId: toPhysicianId(physicianId),
+            clinicTypeId: toClinicTypeId(clinicTypeId),
           });
           changed += 1;
           continue;
         }
 
         await upsertAssignment({
-          physicianId: physicianId as any,
-          clinicTypeId: clinicTypeId as any,
+          physicianId: toPhysicianId(physicianId),
+          clinicTypeId: toClinicTypeId(clinicTypeId),
           halfDaysPerWeek: nextHalfDays,
           activeWeeks: nextWeeks,
         });
@@ -1112,7 +1262,7 @@ function AdminClinicAssignmentsPage({ bundle }: { bundle: any }) {
             <thead className="bg-gray-50 text-gray-700 sticky top-0">
               <tr>
                 <th className="text-left px-3 py-2 min-w-[190px]">Physician</th>
-                {(bundle.clinicTypes ?? []).map((clinicType: any) => (
+                {(bundle.clinicTypes ?? []).map((clinicType) => (
                   <th key={String(clinicType._id)} className="text-left px-2 py-2 min-w-[160px]">
                     <div className="font-medium">{clinicType.name}</div>
                     <div className="text-[11px] text-gray-500">{clinicType.cftePerHalfDay} cFTE/half-day</div>
@@ -1129,7 +1279,7 @@ function AdminClinicAssignmentsPage({ bundle }: { bundle: any }) {
                   </td>
                 </tr>
               ) : (
-                (bundle.physicians ?? []).map((physician: any) => {
+                (bundle.physicians ?? []).map((physician) => {
                   const physicianId = String(physician._id);
                   return (
                     <tr key={physicianId} className="border-t border-gray-100 align-top">
@@ -1137,7 +1287,7 @@ function AdminClinicAssignmentsPage({ bundle }: { bundle: any }) {
                         <div className="font-medium">{physician.fullName}</div>
                         <div className="text-[11px] text-gray-500">{physician.initials}</div>
                       </td>
-                      {(bundle.clinicTypes ?? []).map((clinicType: any) => {
+                      {(bundle.clinicTypes ?? []).map((clinicType) => {
                         const key = `${physicianId}:${String(clinicType._id)}`;
                         const cell = draft[key] ?? { halfDaysPerWeek: "", activeWeeks: "" };
                         return (
@@ -1208,7 +1358,7 @@ function AdminClinicAssignmentsPage({ bundle }: { bundle: any }) {
   );
 }
 
-function AdminMasterCalendarPage({ bundle }: { bundle: any }) {
+function AdminMasterCalendarPage({ bundle }: { bundle: AdminMasterCalendarBundle | null | undefined }) {
   const createDraft = useMutation(api.functions.masterCalendar.createCurrentFiscalYearMasterCalendarDraft);
   const autoAssign = useMutation(api.functions.masterCalendar.autoAssignCurrentFiscalYearDraft);
   const assignDraftCell = useMutation(api.functions.masterCalendar.assignCurrentFiscalYearDraftCell);
@@ -1236,8 +1386,8 @@ function AdminMasterCalendarPage({ bundle }: { bundle: any }) {
   const rotations = bundle.rotations ?? [];
 
   const physicianById = useMemo(() => {
-    return new Map<string, any>(
-      physicians.map((physician: any) => [String(physician._id), physician]),
+    return new Map(
+      physicians.map((physician) => [String(physician._id), physician] as const),
     );
   }, [physicians]);
 
@@ -1250,8 +1400,9 @@ function AdminMasterCalendarPage({ bundle }: { bundle: any }) {
   }, [bundle.availabilityEntries]);
 
   const cfteByPhysicianId = useMemo(() => {
-    return new Map<string, any>(
-      (bundle.cfteSummary ?? []).map((row: any) => [String(row.physicianId), row]),
+    const cfteRows = (bundle.cfteSummary ?? []) as CfteSummaryRow[];
+    return new Map<string, CfteSummaryRow>(
+      cfteRows.map((row) => [String(row.physicianId), row]),
     );
   }, [bundle.cfteSummary]);
 
@@ -1282,9 +1433,9 @@ function AdminMasterCalendarPage({ bundle }: { bundle: any }) {
     setAssigningCellKey(cellKey);
     try {
       const result = await assignDraftCell({
-        weekId: weekId as any,
-        rotationId: rotationId as any,
-        physicianId: physicianId ? (physicianId as any) : undefined,
+        weekId: toWeekId(weekId),
+        rotationId: toRotationId(rotationId),
+        physicianId: physicianId ? toPhysicianId(physicianId) : undefined,
       });
       if ((result.warnings ?? []).length > 0) {
         for (const warning of result.warnings) {
@@ -1300,12 +1451,12 @@ function AdminMasterCalendarPage({ bundle }: { bundle: any }) {
   };
 
   const buildExportData = (): MasterCalendarExportData => {
-    const weekById = new Map<string, any>(weeks.map((week: any) => [String(week._id), week]));
-    const rotationById = new Map<string, any>(
-      rotations.map((rotation: any) => [String(rotation._id), rotation]),
+    const weekById = new Map(weeks.map((week) => [String(week._id), week] as const));
+    const rotationById = new Map(
+      rotations.map((rotation) => [String(rotation._id), rotation] as const),
     );
-    const physicianById = new Map<string, any>(
-      physicians.map((physician: any) => [String(physician._id), physician]),
+    const physicianById = new Map(
+      physicians.map((physician) => [String(physician._id), physician] as const),
     );
 
     const assignments = [];
@@ -1337,7 +1488,7 @@ function AdminMasterCalendarPage({ bundle }: { bundle: any }) {
       }
     }
 
-    const calendarEvents = (calendarEventsBundle?.events ?? []).map((event: any) => {
+    const calendarEvents = (calendarEventsBundle?.events ?? []).map((event) => {
       const week = event.weekId ? weekById.get(String(event.weekId)) : null;
       return {
         id: String(event._id),
@@ -1355,18 +1506,18 @@ function AdminMasterCalendarPage({ bundle }: { bundle: any }) {
     return {
       fiscalYearLabel: String(bundle.fiscalYear?.label ?? "fiscal-year"),
       generatedAtMs: Date.now(),
-      physicians: physicians.map((physician: any) => ({
+      physicians: physicians.map((physician) => ({
         id: String(physician._id),
         fullName: String(physician.fullName),
         initials: String(physician.initials),
       })),
-      weeks: weeks.map((week: any) => ({
+      weeks: weeks.map((week) => ({
         id: String(week._id),
         weekNumber: Number(week.weekNumber),
         startDate: String(week.startDate),
         endDate: String(week.endDate),
       })),
-      rotations: rotations.map((rotation: any) => ({
+      rotations: rotations.map((rotation) => ({
         id: String(rotation._id),
         name: String(rotation.name),
         abbreviation: rotation.abbreviation ? String(rotation.abbreviation) : "",
@@ -1437,7 +1588,7 @@ function AdminMasterCalendarPage({ bundle }: { bundle: any }) {
               week/rotation cells
             </p>
             {hasDraft ? (
-              <p className="text-xs text-gray-500 mt-1">Draft v{bundle.calendar.version}</p>
+              <p className="text-xs text-gray-500 mt-1">Draft v{bundle.calendar?.version}</p>
             ) : null}
           </div>
           <div className="flex items-center gap-2">
@@ -1542,7 +1693,7 @@ function AdminMasterCalendarPage({ bundle }: { bundle: any }) {
             <thead className="bg-gray-50 text-gray-700 sticky top-0">
               <tr>
                 <th className="text-left px-2 py-2 min-w-[220px]">Physician</th>
-                {weeks.map((week: any) => (
+                {weeks.map((week) => (
                   <th key={String(week._id)} className="px-1 py-2 min-w-[32px] text-center">
                     W{week.weekNumber}
                   </th>
@@ -1557,7 +1708,7 @@ function AdminMasterCalendarPage({ bundle }: { bundle: any }) {
                   </td>
                 </tr>
               ) : (
-                physicians.map((physician: any) => {
+                physicians.map((physician) => {
                   const physicianId = String(physician._id);
                   const cfte = cfteByPhysicianId.get(physicianId);
                   return (
@@ -1575,7 +1726,7 @@ function AdminMasterCalendarPage({ bundle }: { bundle: any }) {
                           ) : null}
                         </div>
                       </td>
-                      {weeks.map((week: any) => {
+                      {weeks.map((week) => {
                         const weekId = String(week._id);
                         const availability =
                           availabilityByKey.get(`${physicianId}:${weekId}`) ?? "yellow";
@@ -1635,7 +1786,7 @@ function AdminMasterCalendarPage({ bundle }: { bundle: any }) {
                   </td>
                 </tr>
               ) : (
-                (bundle.cfteSummary ?? []).map((row: any) => (
+                (bundle.cfteSummary ?? []).map((row) => (
                   <tr key={String(row.physicianId)} className="border-t border-gray-100">
                     <td className="px-3 py-2">
                       <div className="font-medium">{row.physicianName}</div>
@@ -1681,7 +1832,7 @@ function AdminMasterCalendarPage({ bundle }: { bundle: any }) {
               <thead className="bg-gray-50 text-gray-700 sticky top-0">
                 <tr>
                   <th className="text-left px-3 py-2 min-w-[150px]">Week</th>
-                  {rotations.map((rotation: any) => (
+                  {rotations.map((rotation) => (
                     <th key={String(rotation._id)} className="text-left px-3 py-2 min-w-[120px]">
                       <div className="font-medium">{rotation.name}</div>
                       <div className="text-[11px] text-gray-500">{rotation.abbreviation}</div>
@@ -1697,7 +1848,7 @@ function AdminMasterCalendarPage({ bundle }: { bundle: any }) {
                     </td>
                   </tr>
                 ) : (
-                  (bundle.grid ?? []).map((row: any) => (
+                  (bundle.grid ?? []).map((row) => (
                     <tr key={String(row.weekId)} className="border-t border-gray-100">
                       <td className="px-3 py-2">
                         <div className="font-medium">Week {row.weekNumber}</div>
@@ -1705,7 +1856,7 @@ function AdminMasterCalendarPage({ bundle }: { bundle: any }) {
                           {row.startDate} to {row.endDate}
                         </div>
                       </td>
-                      {(row.cells ?? []).map((cell: any, index: number) => {
+                      {(row.cells ?? []).map((cell, index: number) => {
                         const weekId = String(row.weekId);
                         const rotationId = String(cell.rotationId);
                         const assignedPhysicianId = cell.physicianId ? String(cell.physicianId) : null;
@@ -1930,7 +2081,7 @@ function AdminAuditLogPage() {
                   </td>
                 </tr>
               ) : (
-                (bundle.items ?? []).map((item: any) => (
+                (bundle.items ?? []).map((item) => (
                   <tr key={String(item._id)} className="border-t border-gray-100 align-top">
                     <td className="px-3 py-2 whitespace-nowrap">{formatDateTime(item.timestamp)}</td>
                     <td className="px-3 py-2">{item.userName}</td>
@@ -1990,10 +2141,10 @@ function PhysicianRequestPanel({
   currentWeekBundle,
   myProfile,
 }: {
-  myRequestBundle: any;
-  myRotationPreferenceBundle: any;
-  currentWeekBundle: any;
-  myProfile: any;
+  myRequestBundle: PhysicianRequestBundle | null | undefined;
+  myRotationPreferenceBundle: RotationPreferencesBundle | null | undefined;
+  currentWeekBundle: CurrentWeeksBundle | null | undefined;
+  myProfile: ConvexReturn<typeof api.functions.physicians.getMyProfile> | undefined;
 }) {
   const saveMyScheduleRequest = useMutation(api.functions.scheduleRequests.saveMyScheduleRequest);
   const setMyWeekPreference = useMutation(api.functions.scheduleRequests.setMyWeekPreference);
@@ -2017,9 +2168,7 @@ function PhysicianRequestPanel({
   const [parsedImport, setParsedImport] = useState<ParsedUploadPayload | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [selectedRotationId, setSelectedRotationId] = useState("");
-  const [rotationMode, setRotationMode] = useState<
-    "do_not_assign" | "deprioritize" | "willing" | "preferred"
-  >("willing");
+  const [rotationMode, setRotationMode] = useState<RotationPreferenceMode>("willing");
   const [rotationPreferenceRank, setRotationPreferenceRank] = useState("1");
   const [rotationNote, setRotationNote] = useState("");
 
@@ -2028,19 +2177,19 @@ function PhysicianRequestPanel({
   }, [myRequestBundle?.request?._id, myRequestBundle?.request?.specialRequests]);
 
   useEffect(() => {
-    if (!selectedWeekId && currentWeekBundle?.weeks?.length > 0) {
-      setSelectedWeekId(String(currentWeekBundle.weeks[0]._id));
+    if (!selectedWeekId && (currentWeekBundle?.weeks?.length ?? 0) > 0) {
+      setSelectedWeekId(String(currentWeekBundle?.weeks?.[0]?._id ?? ""));
     }
   }, [currentWeekBundle?.weeks, selectedWeekId]);
 
   useEffect(() => {
     if (!selectedRotationId && (myRotationPreferenceBundle?.rotations?.length ?? 0) > 0) {
-      setSelectedRotationId(String(myRotationPreferenceBundle.rotations[0].rotation._id));
+      setSelectedRotationId(String(myRotationPreferenceBundle?.rotations?.[0]?.rotation._id ?? ""));
     }
   }, [myRotationPreferenceBundle?.rotations, selectedRotationId]);
 
   const preferenceByWeek = useMemo(() => {
-    const map = new Map<string, any>();
+    const map = new Map<string, WeekPreferenceRow>();
     for (const preference of myRequestBundle?.weekPreferences ?? []) {
       map.set(String(preference.weekId), preference);
     }
@@ -2049,7 +2198,7 @@ function PhysicianRequestPanel({
 
   const selectedPreference = selectedWeekId ? preferenceByWeek.get(selectedWeekId) : undefined;
   const rotationPreferenceByRotationId = useMemo(() => {
-    const map = new Map<string, any>();
+    const map = new Map<string, RotationPreferenceValue | null>();
     for (const row of myRotationPreferenceBundle?.rotations ?? []) {
       map.set(String(row.rotation._id), row.preference ?? null);
     }
@@ -2201,7 +2350,7 @@ function PhysicianRequestPanel({
     setSavingWeek(true);
     try {
       await setMyWeekPreference({
-        weekId: selectedWeekId as any,
+        weekId: toWeekId(selectedWeekId),
         availability,
         reasonText: reasonText.trim() || undefined,
       });
@@ -2242,7 +2391,7 @@ function PhysicianRequestPanel({
     setSavingRotation(true);
     try {
       await setMyRotationPreference({
-        rotationId: selectedRotationId as any,
+        rotationId: toRotationId(selectedRotationId),
         avoid: rotationMode === "do_not_assign",
         deprioritize: rotationMode === "deprioritize",
         preferenceRank: rotationMode === "preferred" ? parsedRank : undefined,
@@ -2323,7 +2472,7 @@ function PhysicianRequestPanel({
               disabled={!canEdit || savingWeek}
               className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
             >
-              {(currentWeekBundle.weeks ?? []).map((week: any) => (
+              {(currentWeekBundle.weeks ?? []).map((week) => (
                 <option key={String(week._id)} value={String(week._id)}>
                   Week {week.weekNumber}: {week.startDate} to {week.endDate}
                 </option>
@@ -2386,10 +2535,11 @@ function PhysicianRequestPanel({
                   </td>
                 </tr>
               ) : (
-                (myRequestBundle.weekPreferences ?? []).map((preference: any) => (
+                (myRequestBundle?.weekPreferences ?? []).map((preference) => (
                   <tr key={String(preference._id)} className="border-t border-gray-100">
                     <td className="px-3 py-2">
-                      Week {preference.week.weekNumber} ({preference.week.startDate} to {preference.week.endDate})
+                      Week {preference.week?.weekNumber ?? "?"} ({preference.week?.startDate ?? "unknown"} to{" "}
+                      {preference.week?.endDate ?? "unknown"})
                     </td>
                     <td className="px-3 py-2">
                       <StatusBadge status={preference.availability} />
@@ -2524,7 +2674,7 @@ function PhysicianRequestPanel({
               disabled={!canEdit || savingRotation}
               className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
             >
-              {(myRotationPreferenceBundle?.rotations ?? []).map((row: any) => (
+              {(myRotationPreferenceBundle?.rotations ?? []).map((row) => (
                 <option key={String(row.rotation._id)} value={String(row.rotation._id)}>
                   {row.rotation.name} ({row.rotation.abbreviation})
                 </option>
@@ -2534,12 +2684,12 @@ function PhysicianRequestPanel({
 
           <label className="text-sm">
             <span className="block text-xs text-gray-600 mb-1">Preference Type</span>
-            <select
-              value={rotationMode}
-              onChange={(e) => setRotationMode(e.target.value as any)}
-              disabled={!canEdit || savingRotation}
-              className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
-            >
+              <select
+                value={rotationMode}
+                onChange={(e) => setRotationMode(e.target.value as RotationPreferenceMode)}
+                disabled={!canEdit || savingRotation}
+                className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+              >
               <option value="willing">Willing (neutral)</option>
               <option value="preferred">Preferred</option>
               <option value="deprioritize">Do Not Prefer (can do, assign less often)</option>
@@ -2603,7 +2753,7 @@ function PhysicianRequestPanel({
                   </td>
                 </tr>
               ) : (
-                (myRotationPreferenceBundle.rotations ?? []).map((row: any) => {
+                (myRotationPreferenceBundle?.rotations ?? []).map((row) => {
                   const preference = row.preference;
                   let label = preference ? "Willing" : "Not Set";
                   if (preference?.avoid) {
@@ -2654,12 +2804,15 @@ function TradePanel({
   myTrades,
 }: {
   myPhysicianId: string;
-  tradeOptions: any;
-  myTrades: any[];
+  tradeOptions: TradeProposalOptions;
+  myTrades: TradeRow[] | null | undefined;
 }) {
   const proposeTrade = useMutation(api.functions.tradeRequests.proposeTrade);
   const respondToTrade = useMutation(api.functions.tradeRequests.respondToTrade);
   const cancelTrade = useMutation(api.functions.tradeRequests.cancelTrade);
+
+  const myAssignments = tradeOptions?.myAssignments ?? [];
+  const availableAssignments = tradeOptions?.availableAssignments ?? [];
 
   const [requesterAssignmentId, setRequesterAssignmentId] = useState("");
   const [targetAssignmentId, setTargetAssignmentId] = useState("");
@@ -2667,16 +2820,16 @@ function TradePanel({
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (!requesterAssignmentId && tradeOptions?.myAssignments?.length > 0) {
-      setRequesterAssignmentId(String(tradeOptions.myAssignments[0].assignmentId));
+    if (!requesterAssignmentId && myAssignments.length > 0) {
+      setRequesterAssignmentId(String(myAssignments[0].assignmentId));
     }
-  }, [requesterAssignmentId, tradeOptions?.myAssignments]);
+  }, [requesterAssignmentId, myAssignments]);
 
   useEffect(() => {
-    if (!targetAssignmentId && tradeOptions?.availableAssignments?.length > 0) {
-      setTargetAssignmentId(String(tradeOptions.availableAssignments[0].assignmentId));
+    if (!targetAssignmentId && availableAssignments.length > 0) {
+      setTargetAssignmentId(String(availableAssignments[0].assignmentId));
     }
-  }, [targetAssignmentId, tradeOptions?.availableAssignments]);
+  }, [targetAssignmentId, availableAssignments]);
 
   const handlePropose = async () => {
     if (!requesterAssignmentId || !targetAssignmentId) {
@@ -2687,8 +2840,8 @@ function TradePanel({
     setSaving(true);
     try {
       await proposeTrade({
-        requesterAssignmentId: requesterAssignmentId as any,
-        targetAssignmentId: targetAssignmentId as any,
+        requesterAssignmentId: toAssignmentId(requesterAssignmentId),
+        targetAssignmentId: toAssignmentId(targetAssignmentId),
         reason: reason.trim() || undefined,
       });
       toast.success("Trade proposed");
@@ -2703,7 +2856,7 @@ function TradePanel({
   const handleRespond = async (tradeRequestId: string, decision: "accept" | "decline") => {
     try {
       await respondToTrade({
-        tradeRequestId: tradeRequestId as any,
+        tradeRequestId: toTradeRequestId(tradeRequestId),
         decision,
       });
       toast.success(decision === "accept" ? "Trade accepted" : "Trade declined");
@@ -2715,7 +2868,7 @@ function TradePanel({
   const handleCancel = async (tradeRequestId: string) => {
     try {
       await cancelTrade({
-        tradeRequestId: tradeRequestId as any,
+        tradeRequestId: toTradeRequestId(tradeRequestId),
       });
       toast.success("Trade cancelled");
     } catch (error) {
@@ -2748,7 +2901,7 @@ function TradePanel({
               className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
               disabled={saving}
             >
-              {(tradeOptions?.myAssignments ?? []).map((assignment: any) => (
+              {myAssignments.map((assignment) => (
                 <option key={String(assignment.assignmentId)} value={String(assignment.assignmentId)}>
                   {assignment.weekLabel} - {assignment.rotationLabel}
                 </option>
@@ -2764,7 +2917,7 @@ function TradePanel({
               className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
               disabled={saving}
             >
-              {(tradeOptions?.availableAssignments ?? []).map((assignment: any) => (
+              {availableAssignments.map((assignment) => (
                 <option key={String(assignment.assignmentId)} value={String(assignment.assignmentId)}>
                   {assignment.weekLabel} - {assignment.rotationLabel} ({assignment.physicianName})
                 </option>
@@ -2812,7 +2965,7 @@ function TradePanel({
                 </td>
               </tr>
             ) : (
-              (myTrades ?? []).map((trade: any) => {
+              (myTrades ?? []).map((trade) => {
                 const isTarget = String(trade.targetPhysicianId) === myPhysicianId;
                 const isRequester = String(trade.requestingPhysicianId) === myPhysicianId;
 
@@ -2872,14 +3025,14 @@ function TradePanel({
   );
 }
 
-function AdminRotationPreferencePanel({ bundle }: { bundle: any }) {
+function AdminRotationPreferencePanel({ bundle }: { bundle: AdminRotationPreferenceBundle | null | undefined }) {
   const setByAdmin = useMutation(api.functions.rotationPreferences.setPhysicianRotationPreferenceByAdmin);
   const approveForMapping = useMutation(
     api.functions.rotationPreferences.approveRotationPreferencesForMapping,
   );
   const [selectedPhysicianId, setSelectedPhysicianId] = useState("");
   const [selectedRotationId, setSelectedRotationId] = useState("");
-  const [mode, setMode] = useState<"do_not_assign" | "deprioritize" | "willing" | "preferred">("willing");
+  const [mode, setMode] = useState<RotationPreferenceMode>("willing");
   const [rank, setRank] = useState("1");
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
@@ -2887,26 +3040,26 @@ function AdminRotationPreferencePanel({ bundle }: { bundle: any }) {
 
   useEffect(() => {
     if (!selectedPhysicianId && (bundle?.physicians?.length ?? 0) > 0) {
-      setSelectedPhysicianId(String(bundle.physicians[0]._id));
+      setSelectedPhysicianId(String(bundle?.physicians?.[0]?._id ?? ""));
     }
   }, [bundle?.physicians, selectedPhysicianId]);
 
   useEffect(() => {
     if (!selectedRotationId && (bundle?.rotations?.length ?? 0) > 0) {
-      setSelectedRotationId(String(bundle.rotations[0]._id));
+      setSelectedRotationId(String(bundle?.rotations?.[0]?._id ?? ""));
     }
   }, [bundle?.rotations, selectedRotationId]);
 
   const selectedRow = useMemo(() => {
     return (bundle?.rows ?? []).find(
-      (row: any) => String(row.physicianId) === selectedPhysicianId,
+      (row) => String(row.physicianId) === selectedPhysicianId,
     );
   }, [bundle?.rows, selectedPhysicianId]);
 
   const selectedPreference = useMemo(() => {
     if (!selectedRow) return null;
     const match = (selectedRow.preferences ?? []).find(
-      (entry: any) => String(entry.rotationId) === selectedRotationId,
+      (entry) => String(entry.rotationId) === selectedRotationId,
     );
     return match?.preference ?? null;
   }, [selectedRow, selectedRotationId]);
@@ -2986,7 +3139,7 @@ function AdminRotationPreferencePanel({ bundle }: { bundle: any }) {
           className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
           disabled={saving}
         >
-          {(bundle.physicians ?? []).map((physician: any) => (
+          {(bundle.physicians ?? []).map((physician) => (
             <option key={String(physician._id)} value={String(physician._id)}>
               {physician.fullName} ({physician.initials})
             </option>
@@ -3023,7 +3176,7 @@ function AdminRotationPreferencePanel({ bundle }: { bundle: any }) {
           className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
           disabled={saving}
         >
-          {(bundle.rotations ?? []).map((rotation: any) => (
+          {(bundle.rotations ?? []).map((rotation) => (
             <option key={String(rotation._id)} value={String(rotation._id)}>
               {rotation.name} ({rotation.abbreviation})
             </option>
@@ -3035,7 +3188,7 @@ function AdminRotationPreferencePanel({ bundle }: { bundle: any }) {
         <span className="block text-xs text-gray-600 mb-1">Mode</span>
         <select
           value={mode}
-          onChange={(e) => setMode(e.target.value as any)}
+          onChange={(e) => setMode(e.target.value as RotationPreferenceMode)}
           className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
           disabled={saving}
         >
@@ -3097,7 +3250,7 @@ function AdminRotationPreferencePanel({ bundle }: { bundle: any }) {
             setApproving(true);
             try {
               await approveForMapping({
-                physicianId: selectedPhysicianId as any,
+                physicianId: toPhysicianId(selectedPhysicianId),
               });
               toast.success("Approved for calendar mapping");
             } catch (error) {
@@ -3140,8 +3293,8 @@ function AdminRotationPreferencePanel({ bundle }: { bundle: any }) {
             setSaving(true);
             try {
               await setByAdmin({
-                physicianId: selectedPhysicianId as any,
-                rotationId: selectedRotationId as any,
+                physicianId: toPhysicianId(selectedPhysicianId),
+                rotationId: toRotationId(selectedRotationId),
                 mode,
                 preferenceRank: mode === "preferred" ? Number(rank) : undefined,
                 note: mode === "do_not_assign" ? note.trim() || undefined : undefined,
@@ -3171,7 +3324,7 @@ function AdminRotationPreferencePanel({ bundle }: { bundle: any }) {
             </tr>
           </thead>
           <tbody>
-            {(bundle.rows ?? []).map((row: any) => (
+            {(bundle.rows ?? []).map((row) => (
               <tr key={String(row.physicianId)} className="border-t border-gray-100">
                 <td className="px-2 py-2">
                   {row.physicianName} ({row.physicianInitials})
@@ -3202,8 +3355,8 @@ function AdminWeekPreferenceImportPanel({
   physicians,
   currentWeekBundle,
 }: {
-  physicians: any[];
-  currentWeekBundle: any;
+  physicians: PhysiciansBundle | null | undefined;
+  currentWeekBundle: CurrentWeeksBundle | null | undefined;
 }) {
   const importWeekPreferences = useMutation(
     api.functions.scheduleRequests.importWeekPreferencesFromUpload,
@@ -3211,8 +3364,8 @@ function AdminWeekPreferenceImportPanel({
   const activePhysicians: ImportTargetPhysician[] = useMemo(
     () =>
       (physicians ?? [])
-        .filter((physician: any) => physician.isActive)
-        .map((physician: any) => ({
+        .filter((physician) => physician.isActive)
+        .map((physician) => ({
           _id: String(physician._id),
           firstName: physician.firstName,
           lastName: physician.lastName,
@@ -3294,7 +3447,7 @@ function AdminWeekPreferenceImportPanel({
     setImportingWeeks(true);
     try {
       const result = await importWeekPreferences({
-        targetPhysicianId: selectedPhysician._id as any,
+        targetPhysicianId: toPhysicianId(String(selectedPhysician._id)),
         sourceFileName: parsedImport.sourceFileName,
         sourceDoctorToken: parsedImport.sourceDoctorToken,
         sourceFiscalYearLabel: parsedImport.sourceFiscalYearLabel,
@@ -3442,7 +3595,7 @@ function AdminWeekPreferenceImportPanel({
   );
 }
 
-function AdminRequestQueue({ adminRequestBundle }: { adminRequestBundle: any }) {
+function AdminRequestQueue({ adminRequestBundle }: { adminRequestBundle: AdminRequestBundle | null | undefined }) {
   if (!adminRequestBundle?.fiscalYear) {
     return (
       <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
@@ -3453,7 +3606,7 @@ function AdminRequestQueue({ adminRequestBundle }: { adminRequestBundle: any }) 
   }
 
   const counts = (adminRequestBundle.requests ?? []).reduce(
-    (acc: Record<string, number>, request: any) => {
+    (acc: Record<string, number>, request) => {
       acc[request.status] = (acc[request.status] ?? 0) + 1;
       return acc;
     },
@@ -3490,7 +3643,7 @@ function AdminRequestQueue({ adminRequestBundle }: { adminRequestBundle: any }) 
                 </td>
               </tr>
             ) : (
-              (adminRequestBundle.requests ?? []).map((request: any) => (
+              (adminRequestBundle.requests ?? []).map((request) => (
                 <tr key={String(request._id)} className="border-t border-gray-100">
                   <td className="px-3 py-2">
                     <div className="font-medium">{request.physicianName}</div>
@@ -3513,13 +3666,13 @@ function AdminRequestQueue({ adminRequestBundle }: { adminRequestBundle: any }) 
   );
 }
 
-function AdminTradeQueue({ trades }: { trades: any[] }) {
+function AdminTradeQueue({ trades }: { trades: AdminTradeQueueBundle | null | undefined }) {
   const adminResolveTrade = useMutation(api.functions.tradeRequests.adminResolveTrade);
 
   const resolve = async (tradeRequestId: string, approve: boolean) => {
     try {
       await adminResolveTrade({
-        tradeRequestId: tradeRequestId as any,
+        tradeRequestId: toTradeRequestId(tradeRequestId),
         approve,
       });
       toast.success(approve ? "Trade approved" : "Trade denied");
@@ -3666,7 +3819,13 @@ function BootstrapSetup() {
   );
 }
 
-function AdminActions({ isAdmin, currentFY }: { isAdmin: boolean; currentFY: any }) {
+function AdminActions({
+  isAdmin,
+  currentFY,
+}: {
+  isAdmin: boolean;
+  currentFY: AdminActionsCurrentFY;
+}) {
   const conferenceNames = ["CHEST", "SCCM", "ATS"] as const;
   const updateFiscalYearStatus = useMutation(api.functions.fiscalYears.updateFiscalYearStatus);
   const importUsPublicHolidays = useAction(
@@ -3691,7 +3850,7 @@ function AdminActions({ isAdmin, currentFY }: { isAdmin: boolean; currentFY: any
   const setConferenceDate = useMutation(
     api.functions.calendarEvents.setCurrentFiscalYearInstitutionalConferenceDate,
   );
-  const [targetStatus, setTargetStatus] = useState<string>("");
+  const [targetStatus, setTargetStatus] = useState<FiscalYearStatus | "">("");
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [isImportingHolidays, setIsImportingHolidays] = useState(false);
   const [holidayImportResult, setHolidayImportResult] = useState<string | null>(null);
@@ -3701,27 +3860,33 @@ function AdminActions({ isAdmin, currentFY }: { isAdmin: boolean; currentFY: any
   const [conferenceDateDrafts, setConferenceDateDrafts] = useState<Record<string, string>>({});
   const [savingConferenceName, setSavingConferenceName] = useState<string | null>(null);
 
-  const nextStatusByCurrent: Record<string, string | undefined> = {
+  const nextStatusByCurrent: Record<FiscalYearStatus, FiscalYearStatus | undefined> = {
     setup: "collecting",
     collecting: "building",
     building: "published",
     published: "archived",
     archived: undefined,
   };
+  const rawCurrentStatus: unknown = currentFY?.status;
+  const currentStatus: FiscalYearStatus | null = isFiscalYearStatus(rawCurrentStatus)
+    ? rawCurrentStatus
+    : null;
 
   useEffect(() => {
-    if (!currentFY) {
+    if (!currentFY || !currentStatus) {
       setTargetStatus("");
       return;
     }
-    setTargetStatus(nextStatusByCurrent[currentFY.status] ?? currentFY.status);
-  }, [currentFY?._id, currentFY?.status]);
+    setTargetStatus(nextStatusByCurrent[currentStatus] ?? currentStatus);
+  }, [currentFY?._id, currentStatus]);
 
   useEffect(() => {
     if (!conferenceBundle?.conferences) return;
     const nextDrafts: Record<string, string> = {};
     for (const name of conferenceNames) {
-      const row = conferenceBundle.conferences.find((conference: any) => conference.name === name);
+      const row = (conferenceBundle.conferences as ConferenceRow[]).find(
+        (conference) => conference.name === name,
+      );
       nextDrafts[name] = row?.date ?? "";
     }
     setConferenceDateDrafts(nextDrafts);
@@ -3737,12 +3902,12 @@ function AdminActions({ isAdmin, currentFY }: { isAdmin: boolean; currentFY: any
   }, [weeksBundle]);
 
   const pendingReligiousEvents = useMemo(() => {
-    const events = calendarEventsBundle?.events ?? [];
+    const events = (calendarEventsBundle?.events ?? []) as ReligiousEventRow[];
     return events
-      .filter((event: any) => event.category === "religious_observance")
-      .filter((event: any) => event.source === "calendarific")
-      .filter((event: any) => !event.isApproved)
-      .sort((a: any, b: any) => {
+      .filter((event) => event.category === "religious_observance")
+      .filter((event) => event.source === "calendarific")
+      .filter((event) => !event.isApproved)
+      .sort((a, b) => {
         const byDate = String(a.date).localeCompare(String(b.date));
         if (byDate !== 0) return byDate;
         return String(a.name).localeCompare(String(b.name));
@@ -3775,26 +3940,26 @@ function AdminActions({ isAdmin, currentFY }: { isAdmin: boolean; currentFY: any
               <select
                 className="rounded border border-gray-300 px-3 py-2 text-sm"
                 value={targetStatus}
-                onChange={(e) => setTargetStatus(e.target.value)}
-                disabled={isUpdatingStatus}
+                onChange={(e) => setTargetStatus(e.target.value as FiscalYearStatus)}
+                disabled={isUpdatingStatus || !currentStatus}
               >
-                <option value={currentFY.status}>{currentFY.status}</option>
-                {nextStatusByCurrent[currentFY.status] ? (
-                  <option value={nextStatusByCurrent[currentFY.status]}>
-                    {nextStatusByCurrent[currentFY.status]}
+                <option value={currentStatus ?? ""}>{currentStatus ?? "unknown"}</option>
+                {currentStatus && nextStatusByCurrent[currentStatus] ? (
+                  <option value={nextStatusByCurrent[currentStatus]}>
+                    {nextStatusByCurrent[currentStatus]}
                   </option>
                 ) : null}
               </select>
               <button
                 onClick={async () => {
-                  if (!currentFY || !targetStatus || targetStatus === currentFY.status) {
+                  if (!currentFY || !currentStatus || !targetStatus || targetStatus === currentStatus) {
                     return;
                   }
                   setIsUpdatingStatus(true);
                   try {
                     const result = await updateFiscalYearStatus({
                       fiscalYearId: currentFY._id,
-                      status: targetStatus as any,
+                      status: targetStatus,
                     });
                     toast.success(result.message);
                   } catch (error) {
@@ -3803,7 +3968,7 @@ function AdminActions({ isAdmin, currentFY }: { isAdmin: boolean; currentFY: any
                     setIsUpdatingStatus(false);
                   }
                 }}
-                disabled={!currentFY || !targetStatus || targetStatus === currentFY.status || isUpdatingStatus}
+                disabled={!currentFY || !currentStatus || !targetStatus || targetStatus === currentStatus || isUpdatingStatus}
                 className="px-3 py-2 text-sm rounded bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
               >
                 {isUpdatingStatus ? "Updating..." : "Update Status"}
@@ -3899,7 +4064,7 @@ function AdminActions({ isAdmin, currentFY }: { isAdmin: boolean; currentFY: any
                 </tr>
               </thead>
               <tbody>
-                {pendingReligiousEvents.map((event: any) => {
+                {pendingReligiousEvents.map((event) => {
                   const weekNumber = event.weekId ? weekNumberById.get(String(event.weekId)) : null;
                   return (
                     <tr key={String(event._id)} className="border-t border-gray-100 align-top">
@@ -4051,7 +4216,7 @@ function SeedButton({
   label,
   description,
 }: {
-  mutation: any;
+  mutation: MutationReference;
   label: string;
   description: string;
 }) {

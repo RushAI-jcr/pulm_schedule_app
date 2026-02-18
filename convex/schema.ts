@@ -36,6 +36,23 @@ const applicationTables = {
     .index("by_role", ["role"])
     .index("by_isActive", ["isActive"]),
 
+  physicianEmailAliases: defineTable({
+    physicianId: v.id("physicians"),
+    email: v.string(),
+    isVerified: v.boolean(),
+    source: v.union(
+      v.literal("admin"),
+      v.literal("auto_name_link"),
+      v.literal("self_email_link"),
+      v.literal("backfill"),
+    ),
+    createdAt: v.number(),
+    createdByWorkosUserId: v.optional(v.string()),
+  })
+    .index("by_email", ["email"])
+    .index("by_physician", ["physicianId"])
+    .index("by_physician_email", ["physicianId", "email"]),
+
   // ========================================
   // FISCAL YEAR CONFIGURATION
   // ========================================

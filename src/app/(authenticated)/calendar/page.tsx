@@ -15,12 +15,14 @@ import { CalendarFilters } from "@/components/calendar/calendar-filters"
 import { IcsExportButton } from "@/components/calendar/ics-export-button"
 import { YearMonthStack } from "@/components/calendar/year-month-stack"
 import { MonthDetail } from "@/components/calendar/month-detail"
+import { DepartmentWeekMatrix } from "@/components/calendar/department-week-matrix"
 import { monthAnchorId, deriveFiscalMonths } from "@/components/calendar/calendar-grid-utils"
 import { useUserRole } from "@/hooks/use-user-role"
 import { useFiscalYear } from "@/hooks/use-fiscal-year"
 
 type ViewMode = "year" | "month"
 type ScopeMode = "my" | "department"
+type CalendarMonthRef = { month: number; year: number }
 
 export default function CalendarPage() {
   const { physicianId, isAdmin } = useUserRole()
@@ -29,11 +31,11 @@ export default function CalendarPage() {
   const [selectedFyId, setSelectedFyId] = useState<Id<"fiscalYears"> | null>(null)
   const [viewMode, setViewMode] = useState<ViewMode>("year")
   const [scopeMode, setScopeMode] = useState<ScopeMode>("my")
-  const [activeMonth, setActiveMonth] = useState<number>(new Date().getMonth())
+  const [activePeriod, setActivePeriod] = useState<CalendarMonthRef | null>(null)
   const [pendingScroll, setPendingScroll] = useState<{ year: number; month: number } | null>(null)
 
   // Filters
-  const [selectedRotationId, setSelectedRotationId] = useState<string | null>(null)
+  const [selectedServiceIds, setSelectedServiceIds] = useState<string[]>([])
   const [selectedPhysicianId, setSelectedPhysicianId] = useState<string | null>(null)
 
   // Default to current FY when it loads
@@ -89,6 +91,28 @@ export default function CalendarPage() {
     [calendarData],
   )
 
+  useEffect(() => {
+    if (fiscalMonths.length === 0) {
+      if (activePeriod !== null) setActivePeriod(null)
+      return
+    }
+
+    const hasActivePeriod =
+      !!activePeriod &&
+      fiscalMonths.some(
+        (entry) => entry.month === activePeriod.month && entry.year === activePeriod.year
+      )
+    if (hasActivePeriod) return
+
+    const today = new Date()
+    const currentEntry =
+      fiscalMonths.find(
+        (entry) => entry.month === today.getMonth() && entry.year === today.getFullYear()
+      ) ?? fiscalMonths[0]
+
+    setActivePeriod({ month: currentEntry.month, year: currentEntry.year })
+  }, [fiscalMonths, activePeriod])
+
   // Effective physician ID for highlighting (My scope always uses signed-in physician)
   const filteredPhysicianId = useMemo((): Id<"physicians"> | null => {
     if (scopeMode === "my") return physicianId ?? null
@@ -116,9 +140,17 @@ export default function CalendarPage() {
 
   // Rotation visibility set
   const visibleRotationIds = useMemo((): Set<string> | null => {
-    if (!selectedRotationId) return null
-    return new Set([selectedRotationId])
-  }, [selectedRotationId])
+    if (selectedServiceIds.length === 0) return null
+    return new Set(selectedServiceIds)
+  }, [selectedServiceIds])
+
+  const handleServiceToggle = (ids: string[]) => {
+    setSelectedServiceIds((prev) =>
+      ids.every((id) => prev.includes(id))
+        ? prev.filter((serviceId) => !ids.includes(serviceId))
+        : [...new Set([...prev, ...ids])]
+    )
+  }
 
   // ── Handlers ─────────────────────────────────────────────────────────────
 
@@ -126,13 +158,17 @@ export default function CalendarPage() {
     if (!calendarData?.grid.length) return
     const week = calendarData.grid.find((w) => w.weekNumber === weekNumber)
     if (week) {
-      setActiveMonth(new Date(week.startDate + "T00:00:00").getMonth())
+      const startDate = new Date(`${week.startDate}T00:00:00`)
+      setActivePeriod({
+        month: startDate.getMonth(),
+        year: startDate.getFullYear(),
+      })
       setViewMode("month")
     }
   }
 
   const handleMonthSelect = (month: number, year: number) => {
-    setActiveMonth(month)
+    setActivePeriod({ month, year })
     if (viewMode === "year") {
       setPendingScroll({ year, month })
     } else {
@@ -143,6 +179,12 @@ export default function CalendarPage() {
   const handleClearMonth = () => {
     setViewMode("year")
   }
+
+  const monthViewPeriod =
+    activePeriod ??
+    (fiscalMonths[0]
+      ? { month: fiscalMonths[0].month, year: fiscalMonths[0].year }
+      : { month: new Date().getMonth(), year: new Date().getFullYear() })
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -204,11 +246,12 @@ export default function CalendarPage() {
             physicianOptions={physicianOptions}
             fiscalMonths={fiscalMonths}
             scopeMode={scopeMode}
-            selectedRotationId={selectedRotationId}
+            selectedServiceIds={selectedServiceIds}
             selectedPhysicianId={selectedPhysicianId}
-            activeMonth={viewMode === "month" ? activeMonth : null}
+            activePeriod={viewMode === "month" ? monthViewPeriod : null}
             viewMode={viewMode}
-            onRotationChange={setSelectedRotationId}
+            onServiceToggle={handleServiceToggle}
+            onClearServices={() => setSelectedServiceIds([])}
             onPhysicianChange={setSelectedPhysicianId}
             onMonthSelect={handleMonthSelect}
             onClearMonth={handleClearMonth}
@@ -221,6 +264,15 @@ export default function CalendarPage() {
             icon={CalendarIcon}
             title="No published calendar"
             description="The calendar for this fiscal year has not been published yet. Check back after the admin builds and publishes the schedule."
+          />
+        ) : scopeMode === "department" && isAdmin ? (
+          <DepartmentWeekMatrix
+            grid={calendarData.grid}
+            rotations={calendarData.rotations}
+            events={calendarData.events}
+            visibleRotationIds={visibleRotationIds}
+            selectedPhysicianId={filteredPhysicianId}
+            activePeriod={viewMode === "month" ? monthViewPeriod : null}
           />
         ) : viewMode === "year" ? (
           <YearMonthStack
@@ -238,8 +290,8 @@ export default function CalendarPage() {
             events={calendarData.events}
             physicianId={filteredPhysicianId}
             visibleRotationIds={visibleRotationIds}
-            activeMonth={activeMonth}
-            onMonthChange={setActiveMonth}
+            activePeriod={monthViewPeriod}
+            onMonthChange={(month, year) => setActivePeriod({ month, year })}
             onBackToYear={() => setViewMode("year")}
           />
         )}

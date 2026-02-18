@@ -1,11 +1,7 @@
 import { query } from "./_generated/server";
 import { v } from "convex/values";
-import { getIdentityRoleClaims, normalizeAppRole, resolveEffectiveRole } from "./lib/roles";
-
-function normalizeEmail(email: string | null | undefined): string | null {
-  if (!email) return null;
-  return email.trim().toLowerCase();
-}
+import { getIdentityRoleClaims, normalizeAppRole, resolveRoleForLinkState } from "./lib/roles";
+import { normalizeEmail, resolvePhysicianLink } from "./lib/physicianLinking";
 
 // Exception: Auth queries intentionally don't call requireAuthenticatedUser()
 // to allow reporting auth state (logged in vs logged out) to middleware and UI
@@ -37,30 +33,23 @@ export const loggedInUser = query({
       throw new Error("Data integrity error: existing app user has unsupported role");
     }
 
-    let physician = await ctx.db
-      .query("physicians")
-      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
-      .unique();
+    const linkResolution = await resolvePhysicianLink({
+      ctx,
+      identity: {
+        subject: identity.subject,
+        email: identity.email ?? null,
+        givenName: identity.givenName ?? null,
+        familyName: identity.familyName ?? null,
+      },
+    });
+    const physician = linkResolution.physician;
 
-    if (!physician) {
-      const email = normalizeEmail(identity.email);
-      if (email) {
-        physician = await ctx.db
-          .query("physicians")
-          .withIndex("by_email", (q) => q.eq("email", email))
-          .unique();
-      }
-    }
-
-    if (physician && !physician.isActive) {
-      physician = null;
-    }
-
-    const role = resolveEffectiveRole({
+    const role = resolveRoleForLinkState({
       appRole: appUser?.role,
       physicianRole: physician?.role,
       identityRoleClaims: getIdentityRoleClaims(identity as Record<string, unknown>),
-      defaultRole: "physician",
+      hasPhysicianLink: !!physician,
+      defaultRole: "viewer",
     });
 
     return {
@@ -69,7 +58,7 @@ export const loggedInUser = query({
       firstName: appUser?.firstName ?? identity.givenName ?? null,
       lastName: appUser?.lastName ?? identity.familyName ?? null,
       role,
-      physicianId: physician?._id ?? appUser?.physicianId ?? null,
+      physicianId: physician?._id ?? null,
       lastLoginAt: appUser?.lastLoginAt ?? null,
     };
   },

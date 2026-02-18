@@ -1,7 +1,8 @@
 import { Doc, Id } from "../_generated/dataModel";
 import { QueryCtx, MutationCtx, ActionCtx } from "../_generated/server";
 import { makeFunctionReference } from "convex/server";
-import { AppRole, getIdentityRoleClaims, normalizeAppRole, resolveEffectiveRole } from "./roles";
+import { AppRole, getIdentityRoleClaims, normalizeAppRole, resolveRoleForLinkState } from "./roles";
+import { normalizeEmail, resolvePhysicianLink } from "./physicianLinking";
 
 type AuthCtx = QueryCtx | MutationCtx;
 
@@ -22,11 +23,6 @@ export type AdminAccess = {
   actorPhysicianId: Id<"physicians"> | null;
 };
 
-function normalizeEmail(email: string | null | undefined): string | null {
-  if (!email) return null;
-  return email.trim().toLowerCase();
-}
-
 async function getAppUserByWorkosSubject(
   ctx: AuthCtx,
   workosUserId: string,
@@ -42,56 +38,31 @@ async function getAppUserByWorkosSubject(
   return rows[0] ?? null;
 }
 
-async function getLinkedPhysician(args: {
-  ctx: AuthCtx;
-  workosUserId: string;
-  email: string | null;
-}): Promise<Doc<"physicians"> | null> {
-  const { ctx, workosUserId, email } = args;
-
-  const byUserId = await ctx.db
-    .query("physicians")
-    .withIndex("by_userId", (q) => q.eq("userId", workosUserId))
-    .collect();
-
-  if (byUserId.length > 1) {
-    throw new Error("Data integrity error: duplicate physician linkage for current user");
-  }
-  if (byUserId.length === 1) {
-    if (!byUserId[0].isActive) throw new Error("Physician record is inactive");
-    return byUserId[0];
-  }
-
-  if (!email) return null;
-
-  const byEmail = await ctx.db
-    .query("physicians")
-    .withIndex("by_email", (q) => q.eq("email", email))
-    .collect();
-
-  if (byEmail.length > 1) {
-    throw new Error("Data integrity error: duplicate physician records for email");
-  }
-  if (byEmail.length === 0) return null;
-  if (!byEmail[0].isActive) throw new Error("Physician record is inactive");
-  return byEmail[0];
-}
-
 export async function requireAuthenticatedUser(ctx: AuthCtx): Promise<AuthenticatedUser> {
   const identity = await ctx.auth.getUserIdentity();
   if (!identity) throw new Error("Not authenticated");
 
   const email = normalizeEmail(identity.email);
-  const [appUser, physician] = await Promise.all([
+  const [appUser, physicianLink] = await Promise.all([
     getAppUserByWorkosSubject(ctx, identity.subject),
-    getLinkedPhysician({ ctx, workosUserId: identity.subject, email }),
+    resolvePhysicianLink({
+      ctx,
+      identity: {
+        subject: identity.subject,
+        email: identity.email ?? null,
+        givenName: identity.givenName ?? null,
+        familyName: identity.familyName ?? null,
+      },
+    }),
   ]);
+  const physician = physicianLink.physician;
 
-  const role = resolveEffectiveRole({
+  const role = resolveRoleForLinkState({
     appRole: appUser?.role,
     physicianRole: physician?.role,
     identityRoleClaims: getIdentityRoleClaims(identity as Record<string, unknown>),
-    defaultRole: "physician",
+    hasPhysicianLink: !!physician,
+    defaultRole: "viewer",
   });
 
   return {

@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { withAuth } from "@workos-inc/authkit-nextjs";
 import { ThemeToggle } from "@/shared/components/theme/ThemeToggle";
@@ -23,24 +22,24 @@ export default async function HomePage() {
         </div>
 
         <div className="space-y-3">
-          <Link
+          <a
             href="/sign-in"
             className="block w-full rounded-md bg-primary text-white text-center py-2.5 font-semibold hover:opacity-95 transition-opacity"
           >
             Sign in
-          </Link>
-          <Link
+          </a>
+          <a
             href="/sign-up"
             className="block w-full rounded-md border border-gray-300 dark:border-slate-600 text-gray-800 dark:text-slate-100 text-center py-2.5 font-semibold hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors"
           >
             Create account
-          </Link>
+          </a>
         </div>
 
         <div className="text-center">
-          <Link href="/reset-password" className="text-sm text-secondary dark:text-slate-200 hover:underline">
+          <a href="/reset-password" className="text-sm text-secondary dark:text-slate-200 hover:underline">
             Forgot password?
-          </Link>
+          </a>
         </div>
       </div>
     </main>

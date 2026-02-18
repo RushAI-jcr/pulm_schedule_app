@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { useQuery, useMutation } from "convex/react"
-import { Users, Plus, Pencil, UserX, AlertCircle } from "lucide-react"
+import { Users, Plus, Pencil, UserX, AlertCircle, Trash2 } from "lucide-react"
 import { api } from "../../../../../convex/_generated/api"
 import type { Id } from "../../../../../convex/_generated/dataModel"
 import { PageHeader } from "@/components/layout/page-header"
@@ -52,6 +52,17 @@ type PhysicianWithStatus = {
   assignmentCount: number
 }
 
+type PhysicianEmailAlias = {
+  aliasId: Id<"physicianEmailAliases"> | null
+  physicianId: Id<"physicians">
+  email: string
+  isVerified: boolean
+  source: "canonical" | "admin" | "auto_name_link" | "self_email_link" | "backfill"
+  isCanonical: boolean
+  createdAt: number
+  createdByWorkosUserId: string | null
+}
+
 export default function PhysiciansManagementPage() {
   const { fiscalYear } = useFiscalYear()
   const physicians = useQuery(
@@ -61,6 +72,8 @@ export default function PhysiciansManagementPage() {
   const createPhysician = useMutation(api.functions.physicians.createPhysician)
   const updatePhysician = useMutation(api.functions.physicians.updatePhysician)
   const deactivatePhysician = useMutation(api.functions.physicians.deactivatePhysician)
+  const addPhysicianEmailAlias = useMutation(api.functions.physicians.addPhysicianEmailAlias)
+  const removePhysicianEmailAlias = useMutation(api.functions.physicians.removePhysicianEmailAlias)
 
   const [addDialogOpen, setAddDialogOpen] = useState(false)
   const [editDialogOpen, setEditDialogOpen] = useState(false)
@@ -74,8 +87,14 @@ export default function PhysiciansManagementPage() {
   const [role, setRole] = useState<"physician" | "admin">("physician")
   const [activeFromDate, setActiveFromDate] = useState("")
   const [activeUntilDate, setActiveUntilDate] = useState("")
+  const [newAliasEmail, setNewAliasEmail] = useState("")
   const [isSaving, setIsSaving] = useState(false)
+  const [isSavingAlias, setIsSavingAlias] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const physicianAliases = useQuery(
+    api.functions.physicians.listPhysicianEmailAliases,
+    selectedPhysician ? { physicianId: selectedPhysician._id } : "skip"
+  ) as PhysicianEmailAlias[] | undefined
 
   if (physicians === undefined) {
     return (
@@ -173,6 +192,41 @@ export default function PhysiciansManagementPage() {
     }
   }
 
+  const handleAddAlias = async () => {
+    if (!selectedPhysician || !newAliasEmail) return
+    setIsSavingAlias(true)
+    setError(null)
+    try {
+      await addPhysicianEmailAlias({
+        physicianId: selectedPhysician._id,
+        email: newAliasEmail,
+      })
+      setNewAliasEmail("")
+      toast.success("Email alias added")
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to add email alias"
+      setError(message)
+      toast.error(message)
+    } finally {
+      setIsSavingAlias(false)
+    }
+  }
+
+  const handleRemoveAlias = async (aliasId: Id<"physicianEmailAliases">) => {
+    setIsSavingAlias(true)
+    setError(null)
+    try {
+      await removePhysicianEmailAlias({ aliasId })
+      toast.success("Email alias removed")
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to remove email alias"
+      setError(message)
+      toast.error(message)
+    } finally {
+      setIsSavingAlias(false)
+    }
+  }
+
   const resetForm = () => {
     setFirstName("")
     setLastName("")
@@ -181,6 +235,8 @@ export default function PhysiciansManagementPage() {
     setRole("physician")
     setActiveFromDate("")
     setActiveUntilDate("")
+    setNewAliasEmail("")
+    setIsSavingAlias(false)
     setSelectedPhysician(null)
     setError(null)
   }
@@ -195,6 +251,7 @@ export default function PhysiciansManagementPage() {
     // Pre-populate with existing dates so saving without changes doesn't lose data
     setActiveFromDate(physician.activeFromDate ?? "")
     setActiveUntilDate(physician.activeUntilDate ?? "")
+    setNewAliasEmail("")
     setEditDialogOpen(true)
   }
 
@@ -398,6 +455,58 @@ export default function PhysiciansManagementPage() {
               <div className="space-y-2">
                 <Label htmlFor="edit-email">Email</Label>
                 <Input id="edit-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+                <p className="text-xs text-muted-foreground">Canonical physician email</p>
+              </div>
+              <div className="space-y-2 rounded-md border p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <Label>Email aliases</Label>
+                  <Badge variant="outline">Sign-in aliases</Badge>
+                </div>
+                {physicianAliases === undefined ? (
+                  <p className="text-xs text-muted-foreground">Loading aliases...</p>
+                ) : physicianAliases.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">No aliases configured.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {physicianAliases.map((alias) => (
+                      <div key={alias.aliasId ?? `canonical-${alias.email}`} className="flex items-center justify-between gap-2 rounded-md border px-2 py-1.5">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm">{alias.email}</p>
+                          <div className="mt-1 flex items-center gap-1">
+                            {alias.isCanonical && <Badge variant="secondary">Canonical</Badge>}
+                            {alias.isVerified && <Badge variant="outline">Verified</Badge>}
+                            <Badge variant="outline">{alias.source.replaceAll("_", " ")}</Badge>
+                          </div>
+                        </div>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => alias.aliasId && handleRemoveAlias(alias.aliasId)}
+                          disabled={!alias.aliasId || alias.isCanonical || isSavingAlias}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="flex items-center gap-2">
+                  <Input
+                    placeholder="name@gmail.com"
+                    type="email"
+                    value={newAliasEmail}
+                    onChange={(e) => setNewAliasEmail(e.target.value)}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleAddAlias}
+                    disabled={isSavingAlias || !newAliasEmail || !selectedPhysician}
+                  >
+                    Add
+                  </Button>
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">

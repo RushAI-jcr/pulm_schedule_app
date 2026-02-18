@@ -2,18 +2,19 @@ import { describe, expect, it } from "vitest";
 import {
   getIdentityRoleClaims,
   resolveEffectiveRole,
+  resolveRoleForLinkState,
   roleSatisfiesRequirement,
 } from "../convex/lib/roles";
 
 describe("role hierarchy helpers", () => {
-  it("defaults authenticated users to physician when no role source exists", () => {
+  it("defaults authenticated users to viewer when no role source exists", () => {
     expect(
       resolveEffectiveRole({
         appRole: null,
         physicianRole: null,
         identityRoleClaims: new Set(),
       }),
-    ).toBe("physician");
+    ).toBe("viewer");
   });
 
   it("keeps explicit viewer role for non-physician accounts", () => {
@@ -60,5 +61,45 @@ describe("role hierarchy helpers", () => {
     expect(roleSatisfiesRequirement("physician", "viewer")).toBe(true);
     expect(roleSatisfiesRequirement("viewer", "physician")).toBe(false);
     expect(roleSatisfiesRequirement("physician", "admin")).toBe(false);
+  });
+
+  it("forces unlinked non-admin users to viewer", () => {
+    expect(
+      resolveRoleForLinkState({
+        appRole: "physician",
+        physicianRole: null,
+        identityRoleClaims: new Set(),
+        hasPhysicianLink: false,
+      }),
+    ).toBe("viewer");
+
+    expect(
+      resolveRoleForLinkState({
+        appRole: null,
+        physicianRole: null,
+        identityRoleClaims: new Set(["physician"]),
+        hasPhysicianLink: false,
+      }),
+    ).toBe("viewer");
+
+    expect(
+      resolveRoleForLinkState({
+        appRole: "physician",
+        physicianRole: "physician",
+        identityRoleClaims: new Set(["viewer"]),
+        hasPhysicianLink: false,
+      }),
+    ).toBe("viewer");
+  });
+
+  it("keeps admin role without physician link", () => {
+    expect(
+      resolveRoleForLinkState({
+        appRole: "admin",
+        physicianRole: null,
+        identityRoleClaims: new Set(),
+        hasPhysicianLink: false,
+      }),
+    ).toBe("admin");
   });
 });

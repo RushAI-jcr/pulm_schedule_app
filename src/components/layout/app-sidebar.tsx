@@ -79,6 +79,10 @@ export function AppSidebar() {
   const { user, isAdmin, isLoading: roleLoading } = useUserRole()
   const { isCollecting } = useFiscalYear()
   const { signOut } = useAuth()
+  const showUnlinkedViewerBanner =
+    !roleLoading &&
+    user?.role === "viewer" &&
+    !user?.physicianId
 
   const visibleSchedulingItems = schedulingItems.filter((item) => {
     if (item.href === "/preferences" && !isCollecting) return false
@@ -106,6 +110,15 @@ export function AppSidebar() {
       </SidebarHeader>
 
       <SidebarContent>
+        {showUnlinkedViewerBanner && (
+          <div className="mx-2 mb-2 rounded-md border border-amber-300/40 bg-amber-500/10 p-3 text-xs text-amber-100">
+            <p className="font-medium text-amber-50">Account not linked</p>
+            <p className="mt-1 text-amber-200/90">
+              Your account is signed in but not linked to a physician profile.
+              Ask an admin to add this email as an alias or verify your profile name.
+            </p>
+          </div>
+        )}
         <SidebarGroup>
           <SidebarGroupLabel>Scheduling</SidebarGroupLabel>
           <SidebarGroupContent>

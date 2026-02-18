@@ -10,7 +10,7 @@ import {
   type MasterCalendarExportEvent,
 } from "@/shared/services/masterCalendarExport"
 import type { Id } from "../../../convex/_generated/dataModel"
-import type { GridRow } from "./calendar-grid-utils"
+import type { EventCategory, GridRow } from "./calendar-grid-utils"
 
 type Rotation = {
   _id: Id<"rotations">
@@ -22,7 +22,7 @@ type CalendarEvent = {
   weekId: Id<"weeks">
   date: string
   name: string
-  category: string
+  category: EventCategory
 }
 
 type CalendarData = {

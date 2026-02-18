@@ -27,5 +27,7 @@
 ## Troubleshooting
 
 - Auth failures: verify Convex auth env vars and deployment URL.
+- Auth redirect mismatch on non-default ports: callback routes derive `redirectUri` from the active request origin (`/callback` on current host/port), so ensure that origin is allowed in WorkOS.
+- Emergency auto-link disable: set `ENABLE_PHYSICIAN_NAME_AUTOLINK=false` and restart services.
 - Schema mismatch: run a fresh `convex dev` session and ensure codegen is updated.
 - Stale local state: restart both frontend and Convex dev processes.

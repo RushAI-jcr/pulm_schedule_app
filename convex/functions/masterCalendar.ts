@@ -28,6 +28,13 @@ import {
 
 const DEFAULT_AVAILABILITY: Availability = "yellow";
 const CFTE_EPSILON = 0.000_001;
+const calendarEventCategoryValidator = v.union(
+  v.literal("federal_holiday"),
+  v.literal("religious_observance"),
+  v.literal("cultural_observance"),
+  v.literal("conference"),
+  v.literal("other"),
+);
 
 type AnyCtx = QueryCtx | MutationCtx;
 
@@ -928,7 +935,7 @@ export const getPublishedCalendarByFiscalYear = query({
         weekId: v.id("weeks"),
         date: v.string(),
         name: v.string(),
-        category: v.string(),
+        category: calendarEventCategoryValidator,
       }),
     ),
   }),

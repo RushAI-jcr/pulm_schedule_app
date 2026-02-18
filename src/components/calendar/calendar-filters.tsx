@@ -1,6 +1,8 @@
 "use client"
 
+import { useMemo } from "react"
 import { cn } from "@/lib/utils"
+import { Button } from "@/shared/components/ui/button"
 import {
   Select,
   SelectContent,
@@ -26,16 +28,22 @@ type FiscalMonth = {
   label: string
 }
 
+type ActivePeriod = {
+  month: number
+  year: number
+}
+
 interface CalendarFiltersProps {
   rotations: Rotation[]
   physicianOptions: PhysicianOption[]
   fiscalMonths: FiscalMonth[]
   scopeMode: "my" | "department"
-  selectedRotationId: string | null
+  selectedServiceIds: string[]
   selectedPhysicianId: string | null
-  activeMonth: number | null
+  activePeriod: ActivePeriod | null
   viewMode: "year" | "month"
-  onRotationChange: (id: string | null) => void
+  onServiceToggle: (ids: string[]) => void
+  onClearServices: () => void
   onPhysicianChange: (id: string | null) => void
   onMonthSelect: (month: number, year: number) => void
   onClearMonth: () => void
@@ -47,43 +55,77 @@ export function CalendarFilters({
   physicianOptions,
   fiscalMonths,
   scopeMode,
-  selectedRotationId,
+  selectedServiceIds,
   selectedPhysicianId,
-  activeMonth,
+  activePeriod,
   viewMode,
-  onRotationChange,
+  onServiceToggle,
+  onClearServices,
   onPhysicianChange,
   onMonthSelect,
   onClearMonth,
   className,
 }: CalendarFiltersProps) {
   const activeMonthKey =
-    activeMonth !== null && viewMode === "month"
-      ? fiscalMonths.find((m) => m.month === activeMonth)
-          ? `${fiscalMonths.find((m) => m.month === activeMonth)!.year}-${activeMonth}`
+    activePeriod !== null && viewMode === "month"
+      ? fiscalMonths.some(
+          (m) => m.month === activePeriod.month && m.year === activePeriod.year
+        )
+          ? `${activePeriod.year}-${activePeriod.month}`
           : undefined
       : undefined
 
+  const serviceGroups = useMemo(() => {
+    const groups = new Map<string, { label: string; ids: string[] }>()
+
+    for (const rotation of rotations) {
+      const abbreviation = rotation.abbreviation.trim()
+      const normalized = abbreviation.toUpperCase()
+      const key = normalized.startsWith("MICU") ? "MICU" : abbreviation
+      const label = key === "MICU" ? "MICU" : abbreviation
+
+      if (!groups.has(key)) {
+        groups.set(key, { label, ids: [] })
+      }
+      groups.get(key)!.ids.push(rotation._id)
+    }
+
+    return Array.from(groups.values())
+  }, [rotations])
+
   return (
     <div className={cn("flex flex-wrap items-center gap-2", className)}>
-      {/* Rotation filter */}
+      {/* Service filter */}
       {rotations.length > 0 && (
-        <Select
-          value={selectedRotationId ?? "all"}
-          onValueChange={(v) => onRotationChange(v === "all" ? null : v)}
-        >
-          <SelectTrigger className="h-8 w-[155px] text-xs">
-            <SelectValue placeholder="All rotations" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All rotations</SelectItem>
-            {rotations.map((r) => (
-              <SelectItem key={r._id} value={r._id}>
-                {r.abbreviation} — {r.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Button
+            type="button"
+            size="sm"
+            variant={selectedServiceIds.length === 0 ? "default" : "outline"}
+            onClick={onClearServices}
+            className="h-8 text-xs"
+          >
+            All services
+          </Button>
+          {serviceGroups.map((service) => {
+            const isActive =
+              service.ids.length > 0 &&
+              service.ids.every((rotationId) => selectedServiceIds.includes(rotationId))
+            return (
+              <Button
+                key={service.label}
+                type="button"
+                size="sm"
+                variant={isActive ? "default" : "outline"}
+                onClick={() => onServiceToggle(service.ids)}
+                className="h-8 text-xs"
+                title={service.label}
+              >
+                {service.label}
+              </Button>
+            )
+          })}
+        </div>
       )}
 
       {/* Physician filter — hidden in "My Calendar" scope */}
