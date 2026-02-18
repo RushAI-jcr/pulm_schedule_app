@@ -14,17 +14,18 @@ export type RotationAccent = {
 
 // All class strings are complete static literals — no interpolation.
 // Tailwind's JIT scanner must see full class names to avoid purging them.
+// Modern indigo theme palette: harmonized with #6366F1 primary
 const ROTATION_ACCENTS: RotationAccent[] = [
-  { borderL: "border-teal-400",    dot: "bg-teal-400",    subtleBg: "bg-teal-50 dark:bg-teal-950/30"      },
-  { borderL: "border-violet-400",  dot: "bg-violet-400",  subtleBg: "bg-violet-50 dark:bg-violet-950/30"  },
-  { borderL: "border-amber-400",   dot: "bg-amber-400",   subtleBg: "bg-amber-50 dark:bg-amber-950/30"    },
-  { borderL: "border-rose-400",    dot: "bg-rose-400",    subtleBg: "bg-rose-50 dark:bg-rose-950/30"      },
-  { borderL: "border-sky-400",     dot: "bg-sky-400",     subtleBg: "bg-sky-50 dark:bg-sky-950/30"        },
-  { borderL: "border-emerald-400", dot: "bg-emerald-400", subtleBg: "bg-emerald-50 dark:bg-emerald-950/30" },
-  { borderL: "border-orange-400",  dot: "bg-orange-400",  subtleBg: "bg-orange-50 dark:bg-orange-950/30"  },
-  { borderL: "border-indigo-400",  dot: "bg-indigo-400",  subtleBg: "bg-indigo-50 dark:bg-indigo-950/30"  },
-  { borderL: "border-fuchsia-400", dot: "bg-fuchsia-400", subtleBg: "bg-fuchsia-50 dark:bg-fuchsia-950/30" },
-  { borderL: "border-lime-500",    dot: "bg-lime-500",    subtleBg: "bg-lime-50 dark:bg-lime-950/30"      },
+  { borderL: "border-indigo-500",  dot: "bg-indigo-500",  subtleBg: "bg-indigo-50 dark:bg-indigo-950/30"  },  // Primary indigo
+  { borderL: "border-blue-500",    dot: "bg-blue-500",    subtleBg: "bg-blue-50 dark:bg-blue-950/30"      },  // Cool blue
+  { borderL: "border-purple-500",  dot: "bg-purple-500",  subtleBg: "bg-purple-50 dark:bg-purple-950/30"  },  // Rich purple
+  { borderL: "border-cyan-500",    dot: "bg-cyan-500",    subtleBg: "bg-cyan-50 dark:bg-cyan-950/30"      },  // Bright cyan
+  { borderL: "border-violet-500",  dot: "bg-violet-500",  subtleBg: "bg-violet-50 dark:bg-violet-950/30"  },  // Deep violet
+  { borderL: "border-sky-500",     dot: "bg-sky-500",     subtleBg: "bg-sky-50 dark:bg-sky-950/30"        },  // Light sky
+  { borderL: "border-fuchsia-500", dot: "bg-fuchsia-500", subtleBg: "bg-fuchsia-50 dark:bg-fuchsia-950/30" }, // Vibrant fuchsia
+  { borderL: "border-pink-500",    dot: "bg-pink-500",    subtleBg: "bg-pink-50 dark:bg-pink-950/30"      },  // Warm pink
+  { borderL: "border-rose-500",    dot: "bg-rose-500",    subtleBg: "bg-rose-50 dark:bg-rose-950/30"      },  // Bold rose
+  { borderL: "border-teal-500",    dot: "bg-teal-500",    subtleBg: "bg-teal-50 dark:bg-teal-950/30"      },  // Cool teal
 ]
 
 export function getRotationAccent(index: number): RotationAccent {

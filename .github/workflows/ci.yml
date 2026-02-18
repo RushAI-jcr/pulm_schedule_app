@@ -1,9 +1,7 @@
-name: CI
+name: CI (Manual Only)
 
 on:
-  pull_request:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -20,23 +18,11 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version-file: ".nvmrc"
           cache: npm
 
       - name: Install
         run: npm ci
 
-      - name: Typecheck Convex
-        run: ./node_modules/.bin/tsc -p convex -noEmit --pretty false
-
-      - name: Typecheck App
-        run: ./node_modules/.bin/tsc -p . -noEmit --pretty false
-
-      - name: Verify Auth Guards
-        run: npm run test:authz
-
-      - name: Run Unit Tests
-        run: npm test
-
-      - name: Build Frontend
-        run: npm run build
+      - name: Validate (typecheck + authz + tests + build)
+        run: npm run check
