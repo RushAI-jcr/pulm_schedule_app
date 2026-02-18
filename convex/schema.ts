@@ -26,9 +26,9 @@ const applicationTables = {
     email: v.string(),
     role: v.union(v.literal("physician"), v.literal("admin")),
     isActive: v.boolean(),
-    // Mid-year activation support
-    activeFromWeekId: v.optional(v.id("weeks")),  // Physician can only be assigned from this week onward
-    activeUntilWeekId: v.optional(v.id("weeks")), // Physician can only be assigned until this week
+    // Mid-year activation support — stored as ISO dates so constraints survive fiscal year rollover
+    activeFromDate: v.optional(v.string()),  // ISO date: physician assignable from this date onward
+    activeUntilDate: v.optional(v.string()), // ISO date: physician assignable until this date
   })
     .index("by_userId", ["userId"])
     .index("by_initials", ["initials"])
@@ -246,7 +246,8 @@ const applicationTables = {
     ),
     publishedAt: v.optional(v.number()),
   })
-    .index("by_fiscalYear", ["fiscalYearId"]),
+    .index("by_fiscalYear", ["fiscalYearId"])
+    .index("by_fiscalYear_status", ["fiscalYearId", "status"]),
 
   // Each cell in the 52×8 grid
   assignments: defineTable({
@@ -266,6 +267,20 @@ const applicationTables = {
     .index("by_calendar_week", ["masterCalendarId", "weekId"])
     .index("by_calendar_physician", ["masterCalendarId", "physicianId"])
     .index("by_calendar_week_rotation", ["masterCalendarId", "weekId", "rotationId"]),
+
+  // ========================================
+  // PHYSICIAN-ROTATION CONSECUTIVE WEEK OVERRIDES (DB-stored, replaces hardcoded rules)
+  // ========================================
+  physicianRotationRules: defineTable({
+    physicianId: v.id("physicians"),
+    rotationId: v.id("rotations"),
+    fiscalYearId: v.id("fiscalYears"),
+    maxConsecutiveWeeks: v.number(),
+  })
+    .index("by_fiscalYear", ["fiscalYearId"])
+    .index("by_physician_fy", ["physicianId", "fiscalYearId"])
+    .index("by_rotation_fy", ["rotationId", "fiscalYearId"])
+    .index("by_physician_rotation_fy", ["physicianId", "rotationId", "fiscalYearId"]),
 
   // ========================================
   // AUTO-FILL CONFIGURATION (Admin-tunable algorithm weights)

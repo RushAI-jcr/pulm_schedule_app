@@ -8,7 +8,7 @@ import type { Id } from "../../../../../convex/_generated/dataModel"
 import { PageHeader } from "@/components/layout/page-header"
 import { EmptyState } from "@/components/shared/empty-state"
 import { PageSkeleton } from "@/components/shared/loading-skeleton"
-import { Button } from "@/components/ui/button"
+import { Button } from "@/shared/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
@@ -47,8 +47,8 @@ type PhysicianWithStatus = {
   email: string
   role: "physician" | "admin"
   isActive: boolean
-  activeFromWeekNumber?: number
-  activeUntilWeekNumber?: number
+  activeFromDate?: string
+  activeUntilDate?: string
   assignmentCount: number
 }
 
@@ -56,10 +56,6 @@ export default function PhysiciansManagementPage() {
   const { fiscalYear } = useFiscalYear()
   const physicians = useQuery(
     api.functions.physicians.listPhysiciansWithStatus,
-    fiscalYear ? { fiscalYearId: fiscalYear._id } : "skip"
-  )
-  const weeks = useQuery(
-    api.functions.fiscalYears.getWeeksByFiscalYear,
     fiscalYear ? { fiscalYearId: fiscalYear._id } : "skip"
   )
   const createPhysician = useMutation(api.functions.physicians.createPhysician)
@@ -76,12 +72,12 @@ export default function PhysiciansManagementPage() {
   const [initials, setInitials] = useState("")
   const [email, setEmail] = useState("")
   const [role, setRole] = useState<"physician" | "admin">("physician")
-  const [activeFromWeekId, setActiveFromWeekId] = useState<string>("")
-  const [activeUntilWeekId, setActiveUntilWeekId] = useState<string>("")
+  const [activeFromDate, setActiveFromDate] = useState("")
+  const [activeUntilDate, setActiveUntilDate] = useState("")
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  if (physicians === undefined || weeks === undefined) {
+  if (physicians === undefined) {
     return (
       <>
         <PageHeader title="Physician Management" description="Manage physician profiles and mid-year changes" />
@@ -113,7 +109,7 @@ export default function PhysiciansManagementPage() {
         initials,
         email,
         role,
-        activeFromWeekId: activeFromWeekId ? (activeFromWeekId as Id<"weeks">) : undefined,
+        activeFromDate: activeFromDate || undefined,
       })
       setAddDialogOpen(false)
       resetForm()
@@ -139,8 +135,9 @@ export default function PhysiciansManagementPage() {
         initials,
         email,
         role,
-        activeFromWeekId: activeFromWeekId ? (activeFromWeekId as Id<"weeks">) : undefined,
-        activeUntilWeekId: activeUntilWeekId ? (activeUntilWeekId as Id<"weeks">) : undefined,
+        // Pass date strings — empty string means "clear the restriction"
+        activeFromDate,
+        activeUntilDate,
       })
       setEditDialogOpen(false)
       resetForm()
@@ -155,13 +152,13 @@ export default function PhysiciansManagementPage() {
   }
 
   const handleDeactivate = async () => {
-    if (!selectedPhysician || !activeUntilWeekId) return
+    if (!selectedPhysician || !activeUntilDate) return
     setIsSaving(true)
     setError(null)
     try {
       const result = await deactivatePhysician({
         physicianId: selectedPhysician._id,
-        activeUntilWeekId: activeUntilWeekId as Id<"weeks">,
+        activeUntilDate,
         fiscalYearId: fiscalYear._id,
       })
       setDeactivateDialogOpen(false)
@@ -182,8 +179,8 @@ export default function PhysiciansManagementPage() {
     setInitials("")
     setEmail("")
     setRole("physician")
-    setActiveFromWeekId("")
-    setActiveUntilWeekId("")
+    setActiveFromDate("")
+    setActiveUntilDate("")
     setSelectedPhysician(null)
     setError(null)
   }
@@ -195,36 +192,39 @@ export default function PhysiciansManagementPage() {
     setInitials(physician.initials)
     setEmail(physician.email)
     setRole(physician.role)
-    setActiveFromWeekId("")
-    setActiveUntilWeekId("")
+    // Pre-populate with existing dates so saving without changes doesn't lose data
+    setActiveFromDate(physician.activeFromDate ?? "")
+    setActiveUntilDate(physician.activeUntilDate ?? "")
     setEditDialogOpen(true)
   }
 
   const openDeactivateDialog = (physician: PhysicianWithStatus) => {
     setSelectedPhysician(physician)
-    setActiveUntilWeekId("")
+    setActiveUntilDate(physician.activeUntilDate ?? "")
     setDeactivateDialogOpen(true)
+  }
+
+  const formatDate = (isoDate: string) => {
+    const [year, month, day] = isoDate.split("-").map(Number)
+    return new Date(year, month - 1, day).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    })
   }
 
   const getStatusBadge = (physician: PhysicianWithStatus) => {
     if (!physician.isActive) {
       return <Badge variant="secondary">Inactive</Badge>
     }
-    if (physician.activeUntilWeekNumber !== undefined) {
-      return <Badge variant="destructive">Ends Week {physician.activeUntilWeekNumber}</Badge>
+    if (physician.activeUntilDate) {
+      return <Badge variant="destructive">Until {formatDate(physician.activeUntilDate)}</Badge>
     }
-    if (physician.activeFromWeekNumber !== undefined) {
-      return <Badge variant="default">Starts Week {physician.activeFromWeekNumber}</Badge>
+    if (physician.activeFromDate) {
+      return <Badge variant="default">Starts {formatDate(physician.activeFromDate)}</Badge>
     }
     return <Badge variant="default">Active</Badge>
   }
-
-  const futureAssignments = selectedPhysician && activeUntilWeekId && weeks
-    ? weeks.filter((w) => {
-        const selectedWeek = weeks.find((week) => String(week._id) === activeUntilWeekId)
-        return selectedWeek && w.weekNumber > selectedWeek.weekNumber
-      }).length * (selectedPhysician.assignmentCount / weeks.length)
-    : 0
 
   return (
     <>
@@ -243,7 +243,7 @@ export default function PhysiciansManagementPage() {
               <DialogHeader>
                 <DialogTitle>Add Physician</DialogTitle>
                 <DialogDescription>
-                  Create a new physician profile. Optionally set a start week for mid-year joins.
+                  Create a new physician profile. Optionally set a start date for mid-year joins.
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-4">
@@ -257,40 +257,22 @@ export default function PhysiciansManagementPage() {
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="firstName">First Name</Label>
-                      <Input
-                        id="firstName"
-                        value={firstName}
-                        onChange={(e) => setFirstName(e.target.value)}
-                        placeholder="John"
-                      />
+                      <Input id="firstName" value={firstName} onChange={(e) => setFirstName(e.target.value)} placeholder="John" />
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="lastName">Last Name</Label>
-                      <Input
-                        id="lastName"
-                        value={lastName}
-                        onChange={(e) => setLastName(e.target.value)}
-                        placeholder="Smith"
-                      />
+                      <Input id="lastName" value={lastName} onChange={(e) => setLastName(e.target.value)} placeholder="Smith" />
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="initials">Initials</Label>
-                      <Input
-                        id="initials"
-                        value={initials}
-                        onChange={(e) => setInitials(e.target.value.toUpperCase())}
-                        placeholder="JS"
-                        maxLength={4}
-                      />
+                      <Input id="initials" value={initials} onChange={(e) => setInitials(e.target.value.toUpperCase())} placeholder="JS" maxLength={4} />
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="role">Role</Label>
                       <Select value={role} onValueChange={(v) => setRole(v as "physician" | "admin")}>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="physician">Physician</SelectItem>
                           <SelectItem value="admin">Admin</SelectItem>
@@ -300,36 +282,17 @@ export default function PhysiciansManagementPage() {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="email">Email</Label>
-                    <Input
-                      id="email"
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="john.smith@example.com"
-                    />
+                    <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="john.smith@rush.edu" />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="activeFromWeek">Starts From Week (Optional)</Label>
-                    <Select value={activeFromWeekId} onValueChange={setActiveFromWeekId}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select week (leave blank for immediate start)" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="">No restriction</SelectItem>
-                        {weeks?.map((week) => (
-                          <SelectItem key={week._id} value={String(week._id)}>
-                            Week {week.weekNumber} ({week.startDate})
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <Label htmlFor="activeFromDate">Active From Date (Optional)</Label>
+                    <Input id="activeFromDate" type="date" value={activeFromDate} onChange={(e) => setActiveFromDate(e.target.value)} />
+                    <p className="text-xs text-muted-foreground">Leave blank for immediate start from the beginning of the fiscal year.</p>
                   </div>
                 </div>
               </div>
               <DialogFooter>
-                <Button variant="outline" onClick={() => { setAddDialogOpen(false); resetForm(); }}>
-                  Cancel
-                </Button>
+                <Button variant="outline" onClick={() => { setAddDialogOpen(false); resetForm(); }}>Cancel</Button>
                 <Button onClick={handleAdd} disabled={isSaving || !firstName || !lastName || !initials || !email}>
                   {isSaving ? "Creating..." : "Create Physician"}
                 </Button>
@@ -340,11 +303,7 @@ export default function PhysiciansManagementPage() {
       />
       <div className="flex-1 space-y-6 p-4 md:p-6">
         {physicians.length === 0 ? (
-          <EmptyState
-            icon={Users}
-            title="No physicians"
-            description="Add your first physician to get started."
-          />
+          <EmptyState icon={Users} title="No physicians" description="Add your first physician to get started." />
         ) : (
           <div className="rounded-md border">
             <Table>
@@ -362,32 +321,24 @@ export default function PhysiciansManagementPage() {
               <TableBody>
                 {physicians.map((physician) => (
                   <TableRow key={physician._id}>
-                    <TableCell className="font-medium">
-                      {physician.firstName} {physician.lastName}
-                    </TableCell>
+                    <TableCell className="font-medium">{physician.firstName} {physician.lastName}</TableCell>
                     <TableCell>{physician.initials}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">{physician.email}</TableCell>
                     <TableCell>
-                      <Badge variant={physician.role === "admin" ? "default" : "outline"}>
-                        {physician.role}
-                      </Badge>
+                      <Badge variant={physician.role === "admin" ? "default" : "outline"}>{physician.role}</Badge>
                     </TableCell>
                     <TableCell>{getStatusBadge(physician)}</TableCell>
                     <TableCell>{physician.assignmentCount}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => openEditDialog(physician)}
-                        >
+                        <Button size="sm" variant="outline" onClick={() => openEditDialog(physician)}>
                           <Pencil className="h-4 w-4" />
                         </Button>
                         <Button
                           size="sm"
                           variant="outline"
                           onClick={() => openDeactivateDialog(physician)}
-                          disabled={!physician.isActive || !!physician.activeUntilWeekNumber}
+                          disabled={!physician.isActive || !!physician.activeUntilDate}
                         >
                           <UserX className="h-4 w-4" />
                         </Button>
@@ -421,37 +372,22 @@ export default function PhysiciansManagementPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="edit-firstName">First Name</Label>
-                  <Input
-                    id="edit-firstName"
-                    value={firstName}
-                    onChange={(e) => setFirstName(e.target.value)}
-                  />
+                  <Input id="edit-firstName" value={firstName} onChange={(e) => setFirstName(e.target.value)} />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="edit-lastName">Last Name</Label>
-                  <Input
-                    id="edit-lastName"
-                    value={lastName}
-                    onChange={(e) => setLastName(e.target.value)}
-                  />
+                  <Input id="edit-lastName" value={lastName} onChange={(e) => setLastName(e.target.value)} />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="edit-initials">Initials</Label>
-                  <Input
-                    id="edit-initials"
-                    value={initials}
-                    onChange={(e) => setInitials(e.target.value.toUpperCase())}
-                    maxLength={4}
-                  />
+                  <Input id="edit-initials" value={initials} onChange={(e) => setInitials(e.target.value.toUpperCase())} maxLength={4} />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="edit-role">Role</Label>
                   <Select value={role} onValueChange={(v) => setRole(v as "physician" | "admin")}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="physician">Physician</SelectItem>
                       <SelectItem value="admin">Admin</SelectItem>
@@ -461,60 +397,23 @@ export default function PhysiciansManagementPage() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="edit-email">Email</Label>
-                <Input
-                  id="edit-email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                />
+                <Input id="edit-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="edit-activeFromWeek">Starts From Week (Optional)</Label>
-                <Select value={activeFromWeekId} onValueChange={setActiveFromWeekId}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Current: No restriction" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="">No restriction</SelectItem>
-                    {weeks?.map((week) => (
-                      <SelectItem key={week._id} value={String(week._id)}>
-                        Week {week.weekNumber} ({week.startDate})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-activeFromDate">Active From Date</Label>
+                  <Input id="edit-activeFromDate" type="date" value={activeFromDate} onChange={(e) => setActiveFromDate(e.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-activeUntilDate">Active Until Date</Label>
+                  <Input id="edit-activeUntilDate" type="date" value={activeUntilDate} onChange={(e) => setActiveUntilDate(e.target.value)} />
+                </div>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="edit-activeUntilWeek">Active Until Week (Optional)</Label>
-                <Select value={activeUntilWeekId} onValueChange={setActiveUntilWeekId}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Current: No end date" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="">No end date</SelectItem>
-                    {weeks?.map((week) => (
-                      <SelectItem key={week._id} value={String(week._id)}>
-                        Week {week.weekNumber} ({week.startDate})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {activeUntilWeekId && weeks && (
-                  <p className="text-sm text-amber-600 flex items-start gap-1.5">
-                    <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
-                    <span>
-                      Setting an end week will clear all assignments after week{" "}
-                      {weeks.find((w) => String(w._id) === activeUntilWeekId)?.weekNumber}
-                    </span>
-                  </p>
-                )}
-              </div>
+              <p className="text-xs text-muted-foreground">Clear a date field to remove that restriction.</p>
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setEditDialogOpen(false); resetForm(); }}>
-              Cancel
-            </Button>
+            <Button variant="outline" onClick={() => { setEditDialogOpen(false); resetForm(); }}>Cancel</Button>
             <Button onClick={handleEdit} disabled={isSaving || !firstName || !lastName || !initials || !email}>
               {isSaving ? "Saving..." : "Save Changes"}
             </Button>
@@ -528,7 +427,7 @@ export default function PhysiciansManagementPage() {
           <DialogHeader>
             <DialogTitle>Deactivate Physician</DialogTitle>
             <DialogDescription>
-              Set the last active week for {selectedPhysician?.initials}. All assignments after this week will be cleared.
+              Set the last active date for {selectedPhysician?.initials}. All assignments after this date will be cleared.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -551,41 +450,32 @@ export default function PhysiciansManagementPage() {
               </div>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="deactivate-activeUntilWeek">Active Until Week</Label>
-              <Select value={activeUntilWeekId} onValueChange={setActiveUntilWeekId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select last active week" />
-                </SelectTrigger>
-                <SelectContent>
-                  {weeks?.map((week) => (
-                    <SelectItem key={week._id} value={String(week._id)}>
-                      Week {week.weekNumber} ({week.startDate})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label htmlFor="deactivate-date">Last Active Date</Label>
+              <Input
+                id="deactivate-date"
+                type="date"
+                value={activeUntilDate}
+                onChange={(e) => setActiveUntilDate(e.target.value)}
+              />
             </div>
-            {activeUntilWeekId && (
+            {activeUntilDate && (
               <div className="rounded-md bg-amber-50 dark:bg-amber-950/20 p-4 text-sm text-amber-900 dark:text-amber-100 flex items-start gap-2">
                 <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
                 <div>
                   <p className="font-medium">Warning: This will clear future assignments</p>
                   <p className="text-xs mt-1">
-                    Approximately {Math.round(futureAssignments)} assignment(s) will be cleared after week{" "}
-                    {weeks.find(w => String(w._id) === activeUntilWeekId)?.weekNumber}.
+                    All of {selectedPhysician?.initials}&apos;s assignments in weeks starting after {activeUntilDate ? formatDate(activeUntilDate) : ""} will be cleared from the draft calendar.
                   </p>
                 </div>
               </div>
             )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setDeactivateDialogOpen(false); resetForm(); }}>
-              Cancel
-            </Button>
+            <Button variant="outline" onClick={() => { setDeactivateDialogOpen(false); resetForm(); }}>Cancel</Button>
             <Button
               variant="destructive"
               onClick={handleDeactivate}
-              disabled={isSaving || !activeUntilWeekId}
+              disabled={isSaving || !activeUntilDate}
             >
               {isSaving ? "Deactivating..." : "Deactivate Physician"}
             </Button>

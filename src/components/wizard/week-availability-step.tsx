@@ -5,7 +5,7 @@ import { useMutation, useQuery } from "convex/react"
 import { api } from "../../../convex/_generated/api"
 import type { Id } from "../../../convex/_generated/dataModel"
 import { cn } from "@/lib/utils"
-import { Button } from "@/components/ui/button"
+import { Button } from "@/shared/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import {
   Select,
