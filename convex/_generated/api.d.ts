@@ -28,6 +28,7 @@ import type * as functions_scheduleRequests from "../functions/scheduleRequests.
 import type * as functions_seedClinicAssignments from "../functions/seedClinicAssignments.js";
 import type * as functions_seedRealCalendar from "../functions/seedRealCalendar.js";
 import type * as functions_tradeRequests from "../functions/tradeRequests.js";
+import type * as functions_userSettings from "../functions/userSettings.js";
 import type * as http from "../http.js";
 import type * as lib_auditLog from "../lib/auditLog.js";
 import type * as lib_auth from "../lib/auth.js";
@@ -51,6 +52,7 @@ import type * as lib_rotationPreferenceReadiness from "../lib/rotationPreference
 import type * as lib_scheduleImport from "../lib/scheduleImport.js";
 import type * as lib_scheduleRequestHelpers from "../lib/scheduleRequestHelpers.js";
 import type * as lib_sorting from "../lib/sorting.js";
+import type * as lib_userSettings from "../lib/userSettings.js";
 import type * as lib_workflowPolicy from "../lib/workflowPolicy.js";
 import type * as router from "../router.js";
 
@@ -81,6 +83,7 @@ declare const fullApi: ApiFromModules<{
   "functions/seedClinicAssignments": typeof functions_seedClinicAssignments;
   "functions/seedRealCalendar": typeof functions_seedRealCalendar;
   "functions/tradeRequests": typeof functions_tradeRequests;
+  "functions/userSettings": typeof functions_userSettings;
   http: typeof http;
   "lib/auditLog": typeof lib_auditLog;
   "lib/auth": typeof lib_auth;
@@ -104,6 +107,7 @@ declare const fullApi: ApiFromModules<{
   "lib/scheduleImport": typeof lib_scheduleImport;
   "lib/scheduleRequestHelpers": typeof lib_scheduleRequestHelpers;
   "lib/sorting": typeof lib_sorting;
+  "lib/userSettings": typeof lib_userSettings;
   "lib/workflowPolicy": typeof lib_workflowPolicy;
   router: typeof router;
 }>;

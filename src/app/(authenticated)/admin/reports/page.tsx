@@ -164,6 +164,11 @@ export default function ReportsPage() {
     })
   }, [fiscalYears, currentFiscalYear?._id])
 
+  const fiscalYearLabelById = useMemo(
+    () => new Map(sortedFiscalYears.map((fy) => [fy._id, fy.label])),
+    [sortedFiscalYears],
+  )
+
   useEffect(() => {
     if (!sortedFiscalYears || sortedFiscalYears.length === 0) return
 
@@ -249,11 +254,6 @@ export default function ReportsPage() {
   const activeReport = reportTabs.find((report) => report.id === activeTab) ?? reportTabs[0]
   const isMultiTab = activeReport.scope === "multi"
   const isYoyTab = activeReport.id === "yoy"
-
-  const fiscalYearLabelById = useMemo(
-    () => new Map(sortedFiscalYears.map((fy) => [fy._id, fy.label])),
-    [sortedFiscalYears],
-  )
 
   const selectedLabels = (isMultiTab ? multiFyIds : singleFyId ? [singleFyId] : [])
     .map((id) => fiscalYearLabelById.get(id))

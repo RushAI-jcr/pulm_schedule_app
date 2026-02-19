@@ -18,6 +18,23 @@ const applicationTables = {
     .index("by_email", ["email"])
     .index("by_role", ["role"]),
 
+  userSettings: defineTable({
+    workosUserId: v.string(),
+    notificationPrefs: v.object({
+      schedulePublishedEmail: v.boolean(),
+      tradeRequestEmail: v.boolean(),
+      tradeStatusEmail: v.boolean(),
+      requestWindowEmail: v.boolean(),
+      inAppEnabled: v.boolean(),
+    }),
+    calendarPrefs: v.object({
+      defaultExportScope: v.union(v.literal("my"), v.literal("department")),
+      includeCalendarEvents: v.boolean(),
+      defaultFormat: v.literal("ics"),
+    }),
+    updatedAt: v.number(),
+  }).index("by_workosUserId", ["workosUserId"]),
+
   physicians: defineTable({
     userId: v.optional(v.string()), // WorkOS user ID from AuthKit (e.g., "user_01...")
     firstName: v.string(),

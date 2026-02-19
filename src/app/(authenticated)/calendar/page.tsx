@@ -37,6 +37,7 @@ export default function CalendarPage() {
   // Filters
   const [selectedServiceIds, setSelectedServiceIds] = useState<string[]>([])
   const [selectedPhysicianId, setSelectedPhysicianId] = useState<string | null>(null)
+  const [hasAppliedProfileDefaults, setHasAppliedProfileDefaults] = useState(false)
 
   // Default to current FY when it loads
   useEffect(() => {
@@ -71,6 +72,13 @@ export default function CalendarPage() {
     api.functions.masterCalendar.getPublishedCalendarByFiscalYear,
     selectedFyId ? { fiscalYearId: selectedFyId } : "skip"
   )
+  const profileSettings = useQuery(api.functions.userSettings.getMyUserSettings)
+
+  useEffect(() => {
+    if (hasAppliedProfileDefaults || profileSettings === undefined) return
+    setScopeMode(profileSettings.calendarPrefs.defaultExportScope)
+    setHasAppliedProfileDefaults(true)
+  }, [hasAppliedProfileDefaults, profileSettings])
 
   // ── Derived filter data ──────────────────────────────────────────────────
 
@@ -234,6 +242,7 @@ export default function CalendarPage() {
                 calendarData={calendarData}
                 forPhysicianId={filteredPhysicianId}
                 forPhysicianInitials={exportPhysicianInitials}
+                includeCalendarEvents={profileSettings?.calendarPrefs.includeCalendarEvents ?? true}
               />
             )}
           </div>
