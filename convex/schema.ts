@@ -206,6 +206,8 @@ const applicationTables = {
       v.literal("revised")
     ),
     submittedAt: v.optional(v.number()), // timestamp
+    lastActivityAt: v.optional(v.number()), // timestamp of latest request/preference activity
+    revisionCount: v.optional(v.number()),
     specialRequests: v.optional(v.string()), // free text
     rotationPreferenceApprovalStatus: v.optional(
       v.union(v.literal("pending"), v.literal("approved")),
@@ -215,7 +217,20 @@ const applicationTables = {
   })
     .index("by_physician_fy", ["physicianId", "fiscalYearId"])
     .index("by_fiscalYear", ["fiscalYearId"])
-    .index("by_fiscalYear_status", ["fiscalYearId", "status"]),
+    .index("by_fiscalYear_status", ["fiscalYearId", "status"])
+    .index("by_fiscalYear_activity", ["fiscalYearId", "lastActivityAt"]),
+
+  scheduleRequestInboxReview: defineTable({
+    fiscalYearId: v.id("fiscalYears"),
+    physicianId: v.id("physicians"),
+    lastReviewedAt: v.number(),
+    reviewedBy: v.id("physicians"),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_fiscalYear", ["fiscalYearId"])
+    .index("by_fiscalYear_physician", ["fiscalYearId", "physicianId"])
+    .index("by_reviewer", ["reviewedBy"]),
 
   weekPreferences: defineTable({
     scheduleRequestId: v.id("scheduleRequests"),

@@ -10,7 +10,11 @@ import {
   getRotationConfigurationIssues,
 } from "../lib/rotationPreferenceReadiness";
 import { sortActivePhysicians, sortActiveRotations } from "../lib/sorting";
-import { requireCollectingWindow, getOrCreateRequest } from "../lib/scheduleRequestHelpers";
+import {
+  buildRequestActivityPatch,
+  requireCollectingWindow,
+  getOrCreateRequest,
+} from "../lib/scheduleRequestHelpers";
 
 function validatePreferenceInput(args: {
   preferenceRank?: number;
@@ -75,6 +79,8 @@ export const getMyRotationPreferences = query({
         fiscalYearId: v.id("fiscalYears"),
         status: v.union(v.literal("draft"), v.literal("submitted"), v.literal("revised")),
         submittedAt: v.optional(v.number()),
+        lastActivityAt: v.optional(v.number()),
+        revisionCount: v.optional(v.number()),
         specialRequests: v.optional(v.string()),
         rotationPreferenceApprovalStatus: v.optional(
           v.union(v.literal("pending"), v.literal("approved")),
@@ -253,9 +259,13 @@ export const setMyRotationPreference = mutation({
     }
 
     await setRotationPreferenceApprovalPending(ctx, request);
-    if (request.status === "submitted") {
-      await ctx.db.patch(request._id, { status: "revised" });
-    }
+    await ctx.db.patch(
+      request._id,
+      buildRequestActivityPatch({
+        request,
+        nextStatus: request.status === "submitted" ? "revised" : request.status,
+      }),
+    );
 
     return { message: "Rotation preference saved" };
   },
@@ -610,9 +620,13 @@ export const setPhysicianRotationPreferenceByAdmin = mutation({
     }
 
     await setRotationPreferenceApprovalPending(ctx, request);
-    if (request.status === "submitted") {
-      await ctx.db.patch(request._id, { status: "revised" });
-    }
+    await ctx.db.patch(
+      request._id,
+      buildRequestActivityPatch({
+        request,
+        nextStatus: request.status === "submitted" ? "revised" : request.status,
+      }),
+    );
 
     return { message: "Rotation preference updated by admin" };
   },
