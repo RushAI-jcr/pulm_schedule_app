@@ -25,14 +25,14 @@ export function YoyTrendsReport({
 }) {
   const data = useQuery(
     api.functions.reports.getYearOverYearReport,
-    fiscalYearIds.length > 0 ? { fiscalYearIds } : "skip",
+    fiscalYearIds.length >= 2 ? { fiscalYearIds } : "skip",
   )
 
-  if (fiscalYearIds.length === 0) {
+  if (fiscalYearIds.length < 2) {
     return (
       <EmptyState
         icon={TrendingUp}
-        title="Select fiscal years"
+        title="Select two fiscal years"
         description="Choose two or more fiscal years to compare workload trends."
       />
     )
