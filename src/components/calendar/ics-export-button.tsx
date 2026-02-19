@@ -37,11 +37,13 @@ interface IcsExportButtonProps {
   /** null = export all physicians (department) */
   forPhysicianId: Id<"physicians"> | null
   forPhysicianInitials: string | null
+  includeCalendarEvents?: boolean
 }
 
 function buildExportData(
   calendarData: CalendarData,
   forPhysicianId: Id<"physicians"> | null,
+  includeCalendarEvents: boolean,
 ): MasterCalendarExportData {
   const rotationMap = new Map(
     calendarData.rotations.map((r) => [String(r._id), r])
@@ -82,13 +84,15 @@ function buildExportData(
     }
   }
 
-  const calendarEvents: MasterCalendarExportEvent[] = calendarData.events.map((e, i) => ({
-    id: `event-${String(e.weekId)}-${e.date}-${i}`,
-    weekId: String(e.weekId),
-    date: e.date,
-    name: e.name,
-    category: e.category,
-  }))
+  const calendarEvents: MasterCalendarExportEvent[] = includeCalendarEvents
+    ? calendarData.events.map((e, i) => ({
+        id: `event-${String(e.weekId)}-${e.date}-${i}`,
+        weekId: String(e.weekId),
+        date: e.date,
+        name: e.name,
+        category: e.category,
+      }))
+    : []
 
   return {
     fiscalYearLabel: calendarData.fiscalYear?.label ?? "FY",
@@ -128,6 +132,7 @@ export function IcsExportButton({
   calendarData,
   forPhysicianId,
   forPhysicianInitials,
+  includeCalendarEvents = true,
 }: IcsExportButtonProps) {
   const [isExporting, setIsExporting] = useState(false)
 
@@ -141,7 +146,7 @@ export function IcsExportButton({
     if (isExporting) return
     setIsExporting(true)
     try {
-      const exportData = buildExportData(calendarData, forPhysicianId)
+      const exportData = buildExportData(calendarData, forPhysicianId, includeCalendarEvents)
       if (exportData.assignments.length === 0) {
         console.warn("[IcsExportButton] No assignments found for the current filter — nothing to export.")
         return

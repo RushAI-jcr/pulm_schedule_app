@@ -31,11 +31,38 @@ export async function getOrCreateRequest(
   if (existing) return existing;
 
   // Create new draft request
+  const now = Date.now();
   const requestId = await (ctx as MutationCtx).db.insert("scheduleRequests", {
     physicianId,
     fiscalYearId,
     status: "draft",
+    lastActivityAt: now,
+    revisionCount: 0,
   });
 
   return (await ctx.db.get(requestId))!;
+}
+
+export function buildRequestActivityPatch(params: {
+  request: Pick<Doc<"scheduleRequests">, "status" | "revisionCount">;
+  nextStatus?: "draft" | "submitted" | "revised";
+  now?: number;
+}) {
+  const now = params.now ?? Date.now();
+  const patch: {
+    status?: "draft" | "submitted" | "revised";
+    revisionCount?: number;
+    lastActivityAt: number;
+  } = {
+    lastActivityAt: now,
+  };
+
+  if (params.nextStatus && params.nextStatus !== params.request.status) {
+    patch.status = params.nextStatus;
+    if (params.request.status === "submitted" && params.nextStatus === "revised") {
+      patch.revisionCount = (params.request.revisionCount ?? 0) + 1;
+    }
+  }
+
+  return patch;
 }

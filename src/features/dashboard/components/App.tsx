@@ -19,10 +19,9 @@ import {
 import {
   ParsedUploadPayload,
   UploadAvailability,
-  doesDoctorTokenMatch,
-  normalizeFiscalYearLabel,
   parseScheduleImportFile,
 } from "@/shared/services/scheduleImport";
+import { validateParsedUpload } from "@/shared/services/scheduleImportValidation";
 
 type ImportTargetPhysician = {
   _id: string;
@@ -176,54 +175,6 @@ function toAssignmentId(value: string): Id<"assignments"> {
 
 function toTradeRequestId(value: string): Id<"tradeRequests"> {
   return value as Id<"tradeRequests">;
-}
-
-function validateParsedUpload(params: {
-  payload: ParsedUploadPayload | null;
-  fiscalYearLabel: string | null | undefined;
-  targetPhysician: ImportTargetPhysician | null;
-  fiscalWeeks: FiscalWeekLite[];
-}): string | null {
-  const { payload, fiscalYearLabel, targetPhysician, fiscalWeeks } = params;
-  if (!payload || !fiscalYearLabel || !targetPhysician) {
-    return null;
-  }
-
-  const parsedFy = normalizeFiscalYearLabel(payload.sourceFiscalYearLabel);
-  const activeFy = normalizeFiscalYearLabel(fiscalYearLabel);
-  if (parsedFy !== activeFy) {
-    return `File fiscal year ${parsedFy} does not match active fiscal year ${activeFy}.`;
-  }
-
-  if (
-    !doesDoctorTokenMatch(payload.sourceDoctorToken, {
-      lastName: targetPhysician.lastName,
-      initials: targetPhysician.initials,
-    })
-  ) {
-    return `File doctor token ${payload.sourceDoctorToken} does not match ${targetPhysician.lastName} (${targetPhysician.initials}).`;
-  }
-
-  const expectedWeekStarts = fiscalWeeks.map((week) => week.startDate);
-  const uploadedWeekStarts = payload.weeks.map((week) => week.weekStart);
-  if (expectedWeekStarts.length !== uploadedWeekStarts.length) {
-    return `File must include exactly ${expectedWeekStarts.length} weeks; found ${uploadedWeekStarts.length}.`;
-  }
-
-  const expectedSet = new Set(expectedWeekStarts);
-  const uploadedSet = new Set(uploadedWeekStarts);
-
-  const unknown = uploadedWeekStarts.filter((weekStart) => !expectedSet.has(weekStart));
-  if (unknown.length > 0) {
-    return `File contains unknown week_start values: ${Array.from(new Set(unknown)).slice(0, 3).join(", ")}`;
-  }
-
-  const missing = expectedWeekStarts.filter((weekStart) => !uploadedSet.has(weekStart));
-  if (missing.length > 0) {
-    return `File is missing week_start values: ${missing.slice(0, 3).join(", ")}`;
-  }
-
-  return null;
 }
 
 function downloadBlobFile(fileName: string, blob: Blob) {
@@ -2554,7 +2505,10 @@ function PhysicianRequestPanel({
       </section>
 
       <section className="space-y-3">
-        <h4 className="text-sm font-semibold text-gray-800">Import Week Preferences (CSV/XLSX)</h4>
+        <h4 className="text-sm font-semibold text-gray-800">Import Week Preferences (CSV/XLSX) — Legacy</h4>
+        <p className="text-xs text-gray-600">
+          Prefer using <code>/preferences</code>. This panel is kept temporarily for rollout safety.
+        </p>
         <p className="text-xs text-gray-600">
           Upload a completed FY template (`.xlsx`) or CSV (`week_start`, `preference`) to fully
           replace week preferences for this cycle.
@@ -3477,7 +3431,10 @@ function AdminWeekPreferenceImportPanel({
   return (
     <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm space-y-3">
       <div>
-        <h3 className="text-lg font-semibold">Admin Week Preference Import</h3>
+        <h3 className="text-lg font-semibold">Admin Week Preference Import (Legacy)</h3>
+        <p className="text-sm text-gray-600">
+          Prefer using <code>/preferences</code>. This panel is kept temporarily for rollout safety.
+        </p>
         <p className="text-sm text-gray-600">
           Import a file and assign its week preferences to a selected physician.
         </p>

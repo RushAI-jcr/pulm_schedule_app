@@ -1,7 +1,7 @@
 "use client"
 
-import { useState, useCallback, useRef, useMemo } from "react"
-import { useMutation, useQuery } from "convex/react"
+import { useState, useCallback, useRef, useMemo, useEffect } from "react"
+import { useMutation } from "convex/react"
 import { api } from "../../../convex/_generated/api"
 import type { Id } from "../../../convex/_generated/dataModel"
 import { cn } from "@/lib/utils"
@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/select"
 import { Input } from "@/components/ui/input"
 import { AvailabilityIndicator } from "@/components/shared/availability-indicator"
+import { WeekImportPanel, type WeekImportMode, type WeekImportTarget } from "@/components/wizard/week-import-panel"
 import { Check, AlertTriangle, X, ChevronDown, ChevronUp } from "lucide-react"
 
 type Availability = "green" | "yellow" | "red"
@@ -36,6 +37,10 @@ export function WeekAvailabilityStep({
   weeks,
   weekPreferences,
   calendarEvents,
+  importMode,
+  importTargets = [],
+  defaultImportTargetId,
+  fiscalYearLabel,
   readOnly = false,
   onSaveStatusChange,
 }: {
@@ -56,6 +61,10 @@ export function WeekAvailabilityStep({
     name: string
     category: string
   }>
+  importMode?: WeekImportMode
+  importTargets?: WeekImportTarget[]
+  defaultImportTargetId?: Id<"physicians"> | null
+  fiscalYearLabel?: string | null
   readOnly?: boolean
   onSaveStatusChange?: (status: "idle" | "saving" | "saved" | "error") => void
 }) {
@@ -79,6 +88,22 @@ export function WeekAvailabilityStep({
   })
 
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    const map = new Map<string, {
+      availability: Availability
+      reasonCategory?: ReasonCategory
+      reasonText?: string
+    }>()
+    for (const pref of weekPreferences) {
+      map.set(String(pref.weekId), {
+        availability: pref.availability,
+        reasonCategory: pref.reasonCategory,
+        reasonText: pref.reasonText,
+      })
+    }
+    setLocalPrefs(map)
+  }, [weekPreferences])
 
   const eventsByWeek = useMemo(() => {
     const map = new Map<string, Array<{ name: string; category: string }>>()
@@ -211,6 +236,18 @@ export function WeekAvailabilityStep({
 
   return (
     <div className="space-y-4">
+      {importMode && importTargets.length > 0 && (
+        <WeekImportPanel
+          mode={importMode}
+          readOnly={readOnly}
+          fiscalYearLabel={fiscalYearLabel}
+          fiscalWeeks={weeks.map((week) => ({ _id: week._id, startDate: week.startDate }))}
+          targets={importTargets}
+          defaultTargetId={defaultImportTargetId}
+          onSaveStatusChange={onSaveStatusChange}
+        />
+      )}
+
       {/* Summary bar */}
       <div className="flex flex-wrap items-center gap-3 rounded-lg border p-3">
         <span className="text-sm font-medium">Progress:</span>
