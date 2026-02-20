@@ -31,6 +31,15 @@ export type WeekImportTarget = {
 
 type SaveStatus = "idle" | "saving" | "saved" | "error"
 
+export type WeekImportCompletedPayload = {
+  physicianId: Id<"physicians">
+  physicianInitials: string
+  physicianName: string
+  importedCount: number
+  clearedCount: number
+  sourceFileName: string
+}
+
 export function WeekImportPanel({
   mode,
   readOnly = false,
@@ -39,6 +48,7 @@ export function WeekImportPanel({
   targets,
   defaultTargetId,
   onSaveStatusChange,
+  onImportCompleted,
 }: {
   mode: WeekImportMode
   readOnly?: boolean
@@ -47,6 +57,7 @@ export function WeekImportPanel({
   targets: WeekImportTarget[]
   defaultTargetId?: Id<"physicians"> | null
   onSaveStatusChange?: (status: SaveStatus) => void
+  onImportCompleted?: (payload: WeekImportCompletedPayload) => void
 }) {
   const importWeekPreferences = useMutation(api.functions.scheduleRequests.importWeekPreferencesFromUpload)
   const maxUploadSizeMb = Math.round(MAX_IMPORT_FILE_BYTES / (1024 * 1024))
@@ -150,6 +161,14 @@ export function WeekImportPanel({
       setImportResultMessage(
         `${result.message}. Imported: ${result.importedCount}, cleared (unset): ${result.clearedCount}.`,
       )
+      onImportCompleted?.({
+        physicianId: result.physicianId,
+        physicianInitials: selectedTarget.initials,
+        physicianName: `${selectedTarget.firstName} ${selectedTarget.lastName}`,
+        importedCount: result.importedCount,
+        clearedCount: result.clearedCount,
+        sourceFileName: parsedImport.sourceFileName,
+      })
       onSaveStatusChange?.("saved")
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to import week preferences"
@@ -218,7 +237,7 @@ export function WeekImportPanel({
 
       {readOnly && (
         <div className="rounded border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-300">
-          Import is locked because this fiscal year is not in collecting status.
+          Import is locked because this fiscal year is not in collecting/building status.
         </div>
       )}
 

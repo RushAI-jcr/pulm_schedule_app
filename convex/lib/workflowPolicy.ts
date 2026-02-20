@@ -14,6 +14,10 @@ export function canEditRequestForFiscalYear(status: FiscalYearStatus): boolean {
   return status === "collecting";
 }
 
+export function canAdminImportRequestForFiscalYear(status: FiscalYearStatus): boolean {
+  return status === "collecting" || status === "building";
+}
+
 export function canTransitionFiscalYearStatus(
   from: FiscalYearStatus,
   to: FiscalYearStatus,

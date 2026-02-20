@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo, useRef } from "react"
+import { useState, useMemo, useRef, useEffect } from "react"
 import { useQuery, useMutation } from "convex/react"
 import {
   Calendar,
@@ -34,6 +34,12 @@ import { cn } from "@/lib/utils"
 import { AutoFillConfigPanel } from "@/components/admin/auto-fill-config-panel"
 import { AutoFillMetricsCard } from "@/components/admin/auto-fill-metrics-card"
 import { AutoFillDecisionLog } from "@/components/admin/auto-fill-decision-log"
+import {
+  WeekImportPanel,
+  type WeekImportTarget,
+  type WeekImportCompletedPayload,
+} from "@/components/wizard/week-import-panel"
+import { IcsExportButton } from "@/components/calendar/ics-export-button"
 import { getRotationAccent } from "@/components/calendar/calendar-tokens"
 
 interface AutoFillMetrics {
@@ -47,7 +53,38 @@ interface AutoFillMetrics {
   workloadStdDev: number
 }
 
-type OpState = "idle" | "creating" | "auto_assigning" | "clearing" | "publishing"
+type PhysicianAutoFillResult = {
+  message: string
+  assignedCount: number
+  remainingUnstaffedCount: number
+  warnings: string[]
+  warningSummary: {
+    missingRequest: boolean
+    pendingApproval: boolean
+    missingRotationPreferenceCount: number
+  }
+  physicianMetrics: {
+    physicianId: Id<"physicians">
+    initials: string
+    assignedSlots: number
+    assignedWeeks: number
+    targetCfte: number
+    rotationCfte: number
+    clinicCfte: number
+    totalCfte: number
+    headroom: number
+    isOverTarget: boolean
+  }
+  metrics: AutoFillMetrics
+}
+
+type OpState =
+  | "idle"
+  | "creating"
+  | "auto_assigning"
+  | "auto_assigning_physician"
+  | "clearing"
+  | "publishing"
 
 function getServiceGroupLabel(rotation: { name: string; abbreviation: string }): string {
   const name = rotation.name.trim()
@@ -77,9 +114,13 @@ function downloadCsv(filename: string, headers: string[], rows: string[][]) {
 export default function MasterCalendarPage() {
   const data = useQuery(api.functions.masterCalendar.getCurrentFiscalYearMasterCalendarDraft)
   const clinicData = useQuery(api.functions.physicianClinics.getCurrentFiscalYearPhysicianClinics)
+  const physicianDirectory = useQuery(api.functions.physicians.getPhysicians)
   const createDraft = useMutation(api.functions.masterCalendar.createCurrentFiscalYearMasterCalendarDraft)
   const assignCell = useMutation(api.functions.masterCalendar.assignCurrentFiscalYearDraftCell)
   const autoAssign = useMutation(api.functions.masterCalendar.autoAssignCurrentFiscalYearDraft)
+  const autoAssignForPhysician = useMutation(
+    api.functions.masterCalendar.autoAssignCurrentFiscalYearDraftForPhysician,
+  )
   const clearAutoFilled = useMutation(api.functions.masterCalendar.clearAutoFilledAssignments)
   const publishDraft = useMutation(api.functions.masterCalendar.publishCurrentFiscalYearMasterCalendarDraft)
 
@@ -89,12 +130,16 @@ export default function MasterCalendarPage() {
   const [decisionLogOpen, setDecisionLogOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [lastMetrics, setLastMetrics] = useState<AutoFillMetrics | null>(null)
+  const [lastPhysicianResult, setLastPhysicianResult] = useState<PhysicianAutoFillResult | null>(null)
   const [cellPending, setCellPending] = useState<Set<string>>(new Set())
   const [highlightPhysicianId, setHighlightPhysicianId] = useState<string | null>(null)
+  const [selectedSchedulerPhysicianId, setSelectedSchedulerPhysicianId] = useState<string>("")
+  const [lastImportFeedback, setLastImportFeedback] = useState<string | null>(null)
   const cellPendingRef = useRef(new Set<string>())
 
   const isCreating = opState === "creating"
   const isAutoAssigning = opState === "auto_assigning"
+  const isPhysicianAutoAssigning = opState === "auto_assigning_physician"
   const isClearing = opState === "clearing"
   const isPublishing = opState === "publishing"
   const isBusy = opState !== "idle"
@@ -277,6 +322,103 @@ export default function MasterCalendarPage() {
     highlightPhysicianId,
   ])
 
+  const importTargets = useMemo<WeekImportTarget[]>(() => {
+    if (!physicianDirectory) return []
+    return physicianDirectory
+      .filter((physician) => physician.isActive)
+      .map((physician) => ({
+        id: physician._id,
+        firstName: physician.firstName,
+        lastName: physician.lastName,
+        initials: physician.initials,
+      }))
+  }, [physicianDirectory])
+
+  useEffect(() => {
+    const physicianIds = new Set((data?.physicians ?? []).map((physician) => String(physician._id)))
+    if (physicianIds.size === 0) {
+      if (selectedSchedulerPhysicianId) setSelectedSchedulerPhysicianId("")
+      return
+    }
+    if (selectedSchedulerPhysicianId && physicianIds.has(selectedSchedulerPhysicianId)) return
+
+    const fallback =
+      highlightPhysicianId && physicianIds.has(highlightPhysicianId)
+        ? highlightPhysicianId
+        : String(data?.physicians?.[0]?._id)
+    setSelectedSchedulerPhysicianId(fallback)
+  }, [data?.physicians, highlightPhysicianId, selectedSchedulerPhysicianId])
+
+  const selectedSchedulerPhysician = useMemo(
+    () =>
+      data?.physicians.find(
+        (physician) => String(physician._id) === selectedSchedulerPhysicianId,
+      ) ?? null,
+    [data?.physicians, selectedSchedulerPhysicianId],
+  )
+
+  const selectedPhysicianScheduleRows = useMemo(() => {
+    if (!data || !selectedSchedulerPhysicianId) return []
+
+    return data.grid
+      .map((weekRow) => {
+        const assignedCell = weekRow.cells.find(
+          (cell) => String(cell.physicianId ?? "") === selectedSchedulerPhysicianId,
+        )
+        if (!assignedCell) return null
+
+        const rotation = data.rotations.find(
+          (candidate) => String(candidate._id) === String(assignedCell.rotationId),
+        )
+        if (!rotation) return null
+
+        return {
+          weekNumber: weekRow.weekNumber,
+          weekStart: weekRow.startDate,
+          weekEnd: weekRow.endDate,
+          rotationName: rotation.name,
+          rotationAbbreviation: rotation.abbreviation,
+        }
+      })
+      .filter((row): row is NonNullable<typeof row> => Boolean(row))
+      .sort((a, b) => a.weekNumber - b.weekNumber)
+  }, [data, selectedSchedulerPhysicianId])
+
+  const exportCalendarData = useMemo(() => {
+    if (!data) return null
+
+    const physicianById = new Map(
+      data.physicians.map((physician) => [String(physician._id), physician]),
+    )
+
+    return {
+      fiscalYear: data.fiscalYear ? { label: data.fiscalYear.label } : null,
+      grid: data.grid.map((weekRow) => ({
+        weekId: String(weekRow.weekId),
+        weekNumber: weekRow.weekNumber,
+        startDate: weekRow.startDate,
+        endDate: weekRow.endDate,
+        cells: weekRow.cells.map((cell) => {
+          const physicianId = cell.physicianId ? String(cell.physicianId) : null
+          const physician = physicianId ? physicianById.get(physicianId) ?? null : null
+          return {
+            rotationId: String(cell.rotationId),
+            assignmentId: cell.assignmentId ? String(cell.assignmentId) : null,
+            physicianId,
+            physicianName: physician?.fullName ?? null,
+            physicianInitials: physician?.initials ?? null,
+          }
+        }),
+      })),
+      rotations: data.rotations.map((rotation) => ({
+        _id: rotation._id,
+        name: rotation.name,
+        abbreviation: rotation.abbreviation,
+      })),
+      events: [],
+    }
+  }, [data])
+
   const annualReportRows = useMemo(() => {
     const serviceByRotationId = new Map<string, string>()
     for (const rotation of data?.rotations ?? []) {
@@ -397,6 +539,7 @@ export default function MasterCalendarPage() {
     setOpState("auto_assigning")
     setError(null)
     setLastMetrics(null)
+    setLastPhysicianResult(null)
     try {
       const result = await autoAssign({})
       setLastMetrics(result.metrics)
@@ -407,6 +550,39 @@ export default function MasterCalendarPage() {
     }
   }
 
+  const handleAutoAssignSelectedPhysician = async () => {
+    if (opState !== "idle") return
+    if (!selectedSchedulerPhysicianId) {
+      setError("Select a physician before running physician auto-fill")
+      return
+    }
+
+    setOpState("auto_assigning_physician")
+    setError(null)
+    setLastMetrics(null)
+    try {
+      const result = await autoAssignForPhysician({
+        physicianId: selectedSchedulerPhysicianId as Id<"physicians">,
+        replaceExistingAutoAssignments: true,
+      })
+      setLastPhysicianResult(result)
+      setHighlightPhysicianId(selectedSchedulerPhysicianId)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Physician auto-fill failed")
+    } finally {
+      setOpState("idle")
+    }
+  }
+
+  const handleImportCompleted = (payload: WeekImportCompletedPayload) => {
+    const physicianId = String(payload.physicianId)
+    setSelectedSchedulerPhysicianId(physicianId)
+    setHighlightPhysicianId(physicianId)
+    setLastImportFeedback(
+      `Imported ${payload.importedCount} week preferences for ${payload.physicianName} (${payload.physicianInitials}) from ${payload.sourceFileName}.`,
+    )
+  }
+
   const handleClearAutoFilled = async () => {
     if (opState !== "idle") return
     setOpState("clearing")
@@ -414,6 +590,7 @@ export default function MasterCalendarPage() {
     try {
       await clearAutoFilled({})
       setLastMetrics(null)
+      setLastPhysicianResult(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to clear auto-filled assignments")
     } finally {
@@ -493,8 +670,27 @@ export default function MasterCalendarPage() {
     window.print()
   }
 
+  const handleExportSelectedPhysicianCsv = () => {
+    if (!data?.fiscalYear || !selectedSchedulerPhysician || selectedPhysicianScheduleRows.length === 0) return
+
+    const headers = ["Week", "Start Date", "End Date", "Rotation", "Abbreviation"]
+    const rows = selectedPhysicianScheduleRows.map((row) => [
+      String(row.weekNumber),
+      row.weekStart,
+      row.weekEnd,
+      row.rotationName,
+      row.rotationAbbreviation,
+    ])
+
+    const safeLabel = data.fiscalYear.label.replace(/[^a-z0-9-]+/gi, "-").toLowerCase()
+    const safeInitials = selectedSchedulerPhysician.initials.toLowerCase()
+    downloadCsv(`doctor-schedule-${safeLabel}-${safeInitials}.csv`, headers, rows)
+  }
+
   const hasDraft = !!data.calendar
   const isDraft = data.calendar?.status === "draft"
+  const importReadOnly =
+    data.fiscalYear.status !== "collecting" && data.fiscalYear.status !== "building"
 
   return (
     <>
@@ -571,6 +767,35 @@ export default function MasterCalendarPage() {
           <AutoFillMetricsCard metrics={lastMetrics} />
         )}
 
+        <div className="rounded-lg border bg-card p-4 space-y-4">
+          <div>
+            <h3 className="text-sm font-semibold">Doctor XLS Intake</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Upload one physician template at a time, then run physician-specific auto-fill from this page.
+            </p>
+          </div>
+
+          <WeekImportPanel
+            mode="admin"
+            readOnly={importReadOnly}
+            fiscalYearLabel={data.fiscalYear.label}
+            fiscalWeeks={data.weeks.map((week) => ({ _id: week._id, startDate: week.startDate }))}
+            targets={importTargets}
+            defaultTargetId={
+              selectedSchedulerPhysicianId
+                ? (selectedSchedulerPhysicianId as Id<"physicians">)
+                : importTargets[0]?.id ?? null
+            }
+            onImportCompleted={handleImportCompleted}
+          />
+
+          {lastImportFeedback && (
+            <p className="text-xs text-emerald-700 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2">
+              {lastImportFeedback}
+            </p>
+          )}
+        </div>
+
         {!hasDraft ? (
           <EmptyState
             icon={Calendar}
@@ -585,6 +810,139 @@ export default function MasterCalendarPage() {
           />
         ) : (
           <>
+            <div className="rounded-lg border bg-card p-4 space-y-3">
+              <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <h3 className="text-sm font-semibold">Physician Auto-Fill</h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Fills schedule slots for the selected physician only. Re-running replaces that physician&apos;s
+                    prior auto assignments and preserves manual assignments.
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  onClick={handleAutoAssignSelectedPhysician}
+                  disabled={isBusy || !selectedSchedulerPhysicianId}
+                >
+                  {isPhysicianAutoAssigning && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+                  <Wand2 className="mr-1 h-4 w-4" />
+                  Auto-Fill Selected Physician
+                </Button>
+              </div>
+
+              <label className="space-y-1 block">
+                <span className="text-xs text-muted-foreground">Selected physician</span>
+                <select
+                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
+                  value={selectedSchedulerPhysicianId}
+                  onChange={(event) => {
+                    const physicianId = event.target.value
+                    setSelectedSchedulerPhysicianId(physicianId)
+                    setHighlightPhysicianId(physicianId || null)
+                  }}
+                  disabled={isBusy || data.physicians.length === 0}
+                >
+                  {data.physicians.length === 0 && <option value="">No active physicians</option>}
+                  {data.physicians.map((physician) => (
+                    <option key={String(physician._id)} value={String(physician._id)}>
+                      {physician.initials} - {physician.fullName}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              {lastPhysicianResult && (
+                <div className="rounded-md border bg-muted/20 px-3 py-2 space-y-1.5">
+                  <p className="text-xs font-medium">{lastPhysicianResult.message}</p>
+                  <p className="text-xs text-muted-foreground">
+                    Assigned {lastPhysicianResult.assignedCount} slot(s), {lastPhysicianResult.remainingUnstaffedCount} unfilled slot(s) remain.
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    cFTE {lastPhysicianResult.physicianMetrics.totalCfte.toFixed(2)} / target{" "}
+                    {lastPhysicianResult.physicianMetrics.targetCfte.toFixed(2)}{" "}
+                    ({lastPhysicianResult.physicianMetrics.headroom >= 0 ? "+" : ""}
+                    {lastPhysicianResult.physicianMetrics.headroom.toFixed(2)} headroom)
+                  </p>
+                  {lastPhysicianResult.warnings.length > 0 && (
+                    <div className="space-y-1">
+                      {lastPhysicianResult.warnings.map((warning) => (
+                        <p
+                          key={warning}
+                          className="text-xs text-amber-800 rounded border border-amber-200 bg-amber-50 px-2 py-1"
+                        >
+                          {warning}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-lg border bg-card p-4 space-y-3">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h3 className="text-sm font-semibold">Selected Physician Draft Schedule</h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Export or review one physician&apos;s schedule before full department publish.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleExportSelectedPhysicianCsv}
+                    disabled={!selectedSchedulerPhysician || selectedPhysicianScheduleRows.length === 0}
+                  >
+                    <Download className="mr-1 h-4 w-4" />
+                    Export Doctor CSV
+                  </Button>
+                  {exportCalendarData && selectedSchedulerPhysician ? (
+                    <IcsExportButton
+                      calendarData={exportCalendarData}
+                      forPhysicianId={selectedSchedulerPhysician._id}
+                      forPhysicianInitials={selectedSchedulerPhysician.initials}
+                    />
+                  ) : null}
+                </div>
+              </div>
+
+              {selectedSchedulerPhysician ? (
+                selectedPhysicianScheduleRows.length > 0 ? (
+                  <div className="overflow-x-auto rounded-md border">
+                    <table className="w-full text-xs">
+                      <thead className="bg-muted/40">
+                        <tr className="border-b">
+                          <th className="px-2 py-2 text-left font-semibold">Week</th>
+                          <th className="px-2 py-2 text-left font-semibold">Start</th>
+                          <th className="px-2 py-2 text-left font-semibold">End</th>
+                          <th className="px-2 py-2 text-left font-semibold">Rotation</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {selectedPhysicianScheduleRows.map((row) => (
+                          <tr key={`${row.weekNumber}-${row.rotationAbbreviation}`} className="border-b last:border-b-0">
+                            <td className="px-2 py-1.5">{row.weekNumber}</td>
+                            <td className="px-2 py-1.5">{row.weekStart}</td>
+                            <td className="px-2 py-1.5">{row.weekEnd}</td>
+                            <td className="px-2 py-1.5">
+                              {row.rotationName} ({row.rotationAbbreviation})
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    No draft assignments yet for {selectedSchedulerPhysician.fullName}.
+                  </p>
+                )
+              ) : (
+                <p className="text-xs text-muted-foreground">Select a physician to review draft schedule output.</p>
+              )}
+            </div>
+
             {/* Admin progress + physician highlight controls */}
             <div className="rounded-lg border bg-card p-4 space-y-4">
               <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
@@ -614,11 +972,12 @@ export default function MasterCalendarPage() {
                       <button
                         key={row.physicianId}
                         type="button"
-                        onClick={() =>
+                        onClick={() => {
                           setHighlightPhysicianId((current) =>
                             current === row.physicianId ? null : row.physicianId,
                           )
-                        }
+                          setSelectedSchedulerPhysicianId(row.physicianId)
+                        }}
                         className={cn(
                           "inline-flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs transition-colors",
                           isSelected

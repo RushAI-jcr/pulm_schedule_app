@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  canAdminImportRequestForFiscalYear,
   canTransitionFiscalYearStatus,
   canAdminApproveTrade,
   canAdminDenyTrade,
@@ -45,6 +46,14 @@ describe("schedule request lifecycle policy", () => {
     expect(canMapCalendarForFiscalYear("collecting")).toBe(false);
     expect(canMapCalendarForFiscalYear("published")).toBe(false);
     expect(canMapCalendarForFiscalYear("archived")).toBe(false);
+  });
+
+  it("allows admin imports during collecting and building", () => {
+    expect(canAdminImportRequestForFiscalYear("collecting")).toBe(true);
+    expect(canAdminImportRequestForFiscalYear("building")).toBe(true);
+    expect(canAdminImportRequestForFiscalYear("setup")).toBe(false);
+    expect(canAdminImportRequestForFiscalYear("published")).toBe(false);
+    expect(canAdminImportRequestForFiscalYear("archived")).toBe(false);
   });
 });
 

@@ -1,6 +1,11 @@
 import type { QueryCtx, MutationCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
-import { FiscalYearStatus, canEditRequestForFiscalYear } from "./workflowPolicy";
+import type { AppRole } from "./roles";
+import {
+  FiscalYearStatus,
+  canAdminImportRequestForFiscalYear,
+  canEditRequestForFiscalYear,
+} from "./workflowPolicy";
 import { isRequestDeadlineOpen } from "./fiscalYear";
 
 type AnyCtx = QueryCtx | MutationCtx;
@@ -16,6 +21,26 @@ export function requireCollectingWindow(
   if (!isRequestDeadlineOpen(fiscalYear, now)) {
     throw new Error("Request deadline has passed for this fiscal year");
   }
+}
+
+export function requireImportWindow(args: {
+  fiscalYear: Pick<Doc<"fiscalYears">, "status" | "requestDeadline">;
+  actorRole: AppRole;
+  now?: number;
+}) {
+  const now = args.now ?? Date.now();
+  const fiscalYearStatus = args.fiscalYear.status as FiscalYearStatus;
+
+  if (args.actorRole === "admin") {
+    if (!canAdminImportRequestForFiscalYear(fiscalYearStatus)) {
+      throw new Error(
+        "Admin imports are only available while fiscal year is collecting or building",
+      );
+    }
+    return;
+  }
+
+  requireCollectingWindow(args.fiscalYear, now);
 }
 
 export async function getOrCreateRequest(

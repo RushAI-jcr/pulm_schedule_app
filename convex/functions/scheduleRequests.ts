@@ -22,6 +22,7 @@ import {
 import {
   buildRequestActivityPatch,
   requireCollectingWindow,
+  requireImportWindow,
   getOrCreateRequest,
 } from "../lib/scheduleRequestHelpers";
 import { sortActivePhysicians } from "../lib/sorting";
@@ -432,7 +433,7 @@ export const importWeekPreferencesFromUpload = mutation({
     const fiscalYear = await getSingleActiveFiscalYear(ctx);
     if (!fiscalYear) throw new Error("No fiscal year configured");
 
-    requireCollectingWindow(fiscalYear);
+    requireImportWindow({ fiscalYear, actorRole: currentUser.role });
     if (currentUser.physician) {
       await enforceRateLimit(ctx, currentUser.physician._id, "schedule_request_import");
     }
