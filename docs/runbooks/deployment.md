@@ -40,7 +40,9 @@ See `docs/runbooks/environment-variables.md` for environment matrix.
 ## Frontend host requirements
 
 - Configure the same runtime variables on your frontend host (Vercel recommended).
-- Ensure callback URL (`NEXT_PUBLIC_WORKOS_REDIRECT_URI`) matches deployed frontend domain.
+- Custom domain is optional on Vercel; the default `*.vercel.app` production URL is supported.
+- Ensure WorkOS redirect allowlist includes your active callback URL (for example, `https://<project>.vercel.app/callback`).
+- `NEXT_PUBLIC_WORKOS_REDIRECT_URI` can be used as an explicit override, but middleware/auth routes derive callback URLs from the active request origin.
 - Set `NEXT_PUBLIC_CONVEX_URL` to the environment-specific Convex deployment URL.
 
 ## Required checks before production
