@@ -1,8 +1,8 @@
 "use client"
 
-import { useMemo } from "react"
+import { useEffect, useState } from "react"
 import { useQuery, useMutation } from "convex/react"
-import { FileText, Check, X, Clock, CheckCircle2, AlertTriangle } from "lucide-react"
+import { FileText, Check, X, AlertTriangle } from "lucide-react"
 import { api } from "../../../../../convex/_generated/api"
 import type { Id } from "../../../../../convex/_generated/dataModel"
 import { PageHeader } from "@/components/layout/page-header"
@@ -13,6 +13,7 @@ import { Button } from "@/shared/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
+import { buildAdminRotationPreferencePayload } from "@/lib/adminRotationPreference"
 
 function ScheduleRequestsTab() {
   const data = useQuery(api.functions.scheduleRequests.getAdminScheduleRequests)
@@ -170,6 +171,25 @@ function TradeApprovalTab() {
 function PreferenceMatrixTab() {
   const data = useQuery(api.functions.rotationPreferences.getAdminRotationPreferenceMatrix)
   const approveMutation = useMutation(api.functions.rotationPreferences.approveRotationPreferencesForMapping)
+  const setPreferenceByAdmin = useMutation(api.functions.rotationPreferences.setPhysicianRotationPreferenceByAdmin)
+
+  const [selectedPhysicianId, setSelectedPhysicianId] = useState("")
+  const [selectedRotationId, setSelectedRotationId] = useState("")
+  const [mode, setMode] = useState<"do_not_assign" | "deprioritize" | "willing" | "preferred">("willing")
+  const [preferenceRank, setPreferenceRank] = useState("1")
+  const [note, setNote] = useState("")
+  const [isSavingPreference, setIsSavingPreference] = useState(false)
+  const [saveFeedback, setSaveFeedback] = useState<{ kind: "success" | "error"; message: string } | null>(null)
+
+  useEffect(() => {
+    if (!data?.fiscalYear) return
+    if (!selectedPhysicianId && data.physicians.length > 0) {
+      setSelectedPhysicianId(String(data.physicians[0]._id))
+    }
+    if (!selectedRotationId && data.rotations.length > 0) {
+      setSelectedRotationId(String(data.rotations[0]._id))
+    }
+  }, [data, selectedPhysicianId, selectedRotationId])
 
   if (data === undefined) return <PageSkeleton />
   if (!data?.fiscalYear) {
@@ -190,6 +210,43 @@ function PreferenceMatrixTab() {
     }
   }
 
+  const handleSavePreference = async () => {
+    if (!selectedPhysicianId || !selectedRotationId) {
+      setSaveFeedback({ kind: "error", message: "Choose both physician and rotation." })
+      return
+    }
+
+    const payloadResult = buildAdminRotationPreferencePayload({
+      mode,
+      preferenceRankInput: preferenceRank,
+      noteInput: note,
+    })
+
+    if (!payloadResult.ok) {
+      setSaveFeedback({ kind: "error", message: payloadResult.message })
+      return
+    }
+
+    setIsSavingPreference(true)
+    setSaveFeedback(null)
+    try {
+      await setPreferenceByAdmin({
+        physicianId: selectedPhysicianId as Id<"physicians">,
+        rotationId: selectedRotationId as Id<"rotations">,
+        ...payloadResult.payload,
+      })
+      setSaveFeedback({ kind: "success", message: "Rotation preference saved." })
+      if (payloadResult.payload.mode !== "do_not_assign") setNote("")
+    } catch (err) {
+      setSaveFeedback({
+        kind: "error",
+        message: err instanceof Error ? err.message : "Failed to save preference",
+      })
+    } finally {
+      setIsSavingPreference(false)
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3 flex-wrap">
@@ -205,6 +262,106 @@ function PreferenceMatrixTab() {
             {data.summary.incompleteCount} incomplete
           </Badge>
         )}
+      </div>
+
+      <div className="rounded-lg border p-4 space-y-3">
+        <div>
+          <h4 className="text-sm font-semibold">Admin Preference Editor</h4>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Set a physician&apos;s rotation preference directly in-app.
+          </p>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+          <label className="space-y-1">
+            <span className="text-xs text-muted-foreground">Physician</span>
+            <select
+              className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
+              value={selectedPhysicianId}
+              onChange={(e) => setSelectedPhysicianId(e.target.value)}
+              disabled={isSavingPreference}
+            >
+              {data.physicians.map((physician) => (
+                <option key={String(physician._id)} value={String(physician._id)}>
+                  {physician.initials} - {physician.fullName}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="space-y-1">
+            <span className="text-xs text-muted-foreground">Rotation</span>
+            <select
+              className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
+              value={selectedRotationId}
+              onChange={(e) => setSelectedRotationId(e.target.value)}
+              disabled={isSavingPreference}
+            >
+              {data.rotations.map((rotation) => (
+                <option key={String(rotation._id)} value={String(rotation._id)}>
+                  {rotation.abbreviation} - {rotation.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="space-y-1">
+            <span className="text-xs text-muted-foreground">Mode</span>
+            <select
+              className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
+              value={mode}
+              onChange={(e) =>
+                setMode(e.target.value as "do_not_assign" | "deprioritize" | "willing" | "preferred")
+              }
+              disabled={isSavingPreference}
+            >
+              <option value="willing">Willing</option>
+              <option value="preferred">Preferred</option>
+              <option value="deprioritize">Prefer Not</option>
+              <option value="do_not_assign">Do Not Assign</option>
+            </select>
+          </label>
+
+          <label className="space-y-1">
+            <span className="text-xs text-muted-foreground">Preferred Rank</span>
+            <input
+              type="number"
+              min={1}
+              className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm disabled:opacity-50"
+              value={preferenceRank}
+              onChange={(e) => setPreferenceRank(e.target.value)}
+              disabled={isSavingPreference || mode !== "preferred"}
+            />
+          </label>
+        </div>
+
+        {mode === "do_not_assign" && (
+          <label className="block space-y-1">
+            <span className="text-xs text-muted-foreground">Reason (optional)</span>
+            <input
+              className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              disabled={isSavingPreference}
+              placeholder="Document why this rotation should be avoided"
+            />
+          </label>
+        )}
+
+        <div className="flex items-center justify-between gap-3">
+          {saveFeedback ? (
+            <p className={cn("text-xs", saveFeedback.kind === "error" ? "text-destructive" : "text-emerald-700")}>
+              {saveFeedback.message}
+            </p>
+          ) : (
+            <span className="text-xs text-muted-foreground">
+              Changes update physician preferences immediately and mark approval as pending.
+            </span>
+          )}
+          <Button onClick={handleSavePreference} size="sm" disabled={isSavingPreference}>
+            Save Preference
+          </Button>
+        </div>
       </div>
 
       {!data.rotationConfiguration.isValid && (

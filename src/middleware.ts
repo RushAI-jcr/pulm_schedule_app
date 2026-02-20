@@ -49,11 +49,6 @@ const routeRoleRequirements: Array<{ prefix: string; role: AppRole }> = [
   { prefix: "/admin", role: "admin" },
   { prefix: "/preferences", role: "physician" },
   { prefix: "/trades", role: "physician" },
-  // Legacy routes (kept for backwards compatibility)
-  { prefix: "/fy-setup", role: "admin" },
-  { prefix: "/heatmap", role: "admin" },
-  { prefix: "/roster", role: "admin" },
-  { prefix: "/dashboard/admin", role: "admin" },
 ];
 
 function isPathMatch(pathname: string, prefix: string) {
@@ -111,19 +106,19 @@ function getRequiredRole(pathname: string): AppRole | null {
   );
 }
 
-function buildPreviewAwareRedirectUri() {
+function buildPreviewAwareRedirectUri(request: NextRequest) {
   if (process.env.VERCEL_ENV === "preview" && process.env.VERCEL_BRANCH_URL) {
     return `https://${process.env.VERCEL_BRANCH_URL}/callback`;
   }
   if (process.env.VERCEL_ENV === "production" && process.env.VERCEL_PROJECT_PRODUCTION_URL) {
     return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}/callback`;
   }
-  return undefined;
+  return new URL("/callback", request.url).toString();
 }
 
 export default async function middleware(request: NextRequest) {
   const { session, headers, authorizationUrl } = await authkit(request, {
-    redirectUri: buildPreviewAwareRedirectUri(),
+    redirectUri: buildPreviewAwareRedirectUri(request),
   });
 
   const { pathname } = request.nextUrl;

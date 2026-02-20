@@ -2,13 +2,12 @@
 
 import { useState } from "react"
 import { useQuery, useMutation } from "convex/react"
-import { Stethoscope, Plus, Check, X, Trash2, RefreshCw } from "lucide-react"
+import { Stethoscope, Plus, Check, X, Trash2, RefreshCw, Pencil } from "lucide-react"
 import { api } from "../../../../../convex/_generated/api"
 import type { Id } from "../../../../../convex/_generated/dataModel"
 import { PageHeader } from "@/components/layout/page-header"
 import { EmptyState } from "@/components/shared/empty-state"
 import { PageSkeleton } from "@/components/shared/loading-skeleton"
-import { StatusBadge } from "@/components/shared/status-badge"
 import { Button } from "@/shared/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -29,6 +28,7 @@ function RotationsTab() {
   const data = useQuery(api.functions.rotations.getCurrentFiscalYearRotations)
   const createRotation = useMutation(api.functions.rotations.createRotation)
   const setRotationActive = useMutation(api.functions.rotations.setRotationActive)
+  const updateRotationSettings = useMutation(api.functions.rotations.updateRotationSettings)
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [name, setName] = useState("")
@@ -38,6 +38,13 @@ function RotationsTab() {
   const [maxConsecutiveWeeks, setMaxConsecutiveWeeks] = useState("2")
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [editDialogOpen, setEditDialogOpen] = useState(false)
+  const [editingRotationId, setEditingRotationId] = useState<string>("")
+  const [editCftePerWeek, setEditCftePerWeek] = useState("")
+  const [editMinStaff, setEditMinStaff] = useState("")
+  const [editMaxConsecutiveWeeks, setEditMaxConsecutiveWeeks] = useState("")
+  const [isUpdatingRotation, setIsUpdatingRotation] = useState(false)
+  const [editError, setEditError] = useState<string | null>(null)
 
   if (data === undefined) return <PageSkeleton />
   if (!data?.fiscalYear) {
@@ -76,9 +83,44 @@ function RotationsTab() {
 
   const handleToggleActive = async (rotationId: string, isActive: boolean) => {
     try {
-      await setRotationActive({ rotationId: rotationId as any, isActive })
+      await setRotationActive({ rotationId: rotationId as Id<"rotations">, isActive })
     } catch (err) {
       // Silently handle - UI will reflect current state via reactive query
+    }
+  }
+
+  const openEditDialog = (rotation: {
+    _id: Id<"rotations">
+    cftePerWeek: number
+    minStaff: number
+    maxConsecutiveWeeks: number
+  }) => {
+    setEditingRotationId(String(rotation._id))
+    setEditCftePerWeek(String(rotation.cftePerWeek))
+    setEditMinStaff(String(rotation.minStaff))
+    setEditMaxConsecutiveWeeks(String(rotation.maxConsecutiveWeeks))
+    setEditError(null)
+    setEditDialogOpen(true)
+  }
+
+  const handleUpdateRotation = async () => {
+    if (!editingRotationId) return
+    setIsUpdatingRotation(true)
+    setEditError(null)
+
+    try {
+      await updateRotationSettings({
+        rotationId: editingRotationId as Id<"rotations">,
+        cftePerWeek: parseFloat(editCftePerWeek),
+        minStaff: parseInt(editMinStaff, 10),
+        maxConsecutiveWeeks: parseInt(editMaxConsecutiveWeeks, 10),
+      })
+      setEditDialogOpen(false)
+      setEditingRotationId("")
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : "Failed to update rotation")
+    } finally {
+      setIsUpdatingRotation(false)
     }
   }
 
@@ -146,19 +188,20 @@ function RotationsTab() {
 
       {/* Rotations table */}
       <div className="rounded-lg border">
-        <div className="grid grid-cols-[1fr_80px_80px_80px_80px_80px] gap-2 border-b bg-muted/50 px-4 py-2 text-xs font-medium text-muted-foreground hidden md:grid">
+        <div className="grid grid-cols-[1fr_80px_80px_80px_80px_90px_90px] gap-2 border-b bg-muted/50 px-4 py-2 text-xs font-medium text-muted-foreground hidden md:grid">
           <span>Rotation</span>
           <span className="text-center">Abbrev</span>
           <span className="text-center">cFTE/wk</span>
           <span className="text-center">Min Staff</span>
           <span className="text-center">Max Wks</span>
           <span className="text-center">Status</span>
+          <span className="text-center">Math</span>
         </div>
         {data.rotations.map((rotation) => (
           <div
             key={String(rotation._id)}
             className={cn(
-              "grid grid-cols-1 md:grid-cols-[1fr_80px_80px_80px_80px_80px] gap-2 items-center px-4 py-3 border-b last:border-b-0",
+              "grid grid-cols-1 md:grid-cols-[1fr_80px_80px_80px_80px_90px_90px] gap-2 items-center px-4 py-3 border-b last:border-b-0",
               !rotation.isActive && "opacity-50",
             )}
           >
@@ -187,6 +230,17 @@ function RotationsTab() {
                 )}
               </Button>
             </div>
+            <div className="flex justify-center">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() => openEditDialog(rotation)}
+              >
+                <Pencil className="mr-1 h-3 w-3" />
+                Edit
+              </Button>
+            </div>
           </div>
         ))}
         {data.rotations.length === 0 && (
@@ -195,6 +249,56 @@ function RotationsTab() {
           </p>
         )}
       </div>
+
+      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Rotation Math</DialogTitle>
+            <DialogDescription>
+              Update cFTE and staffing values for this fiscal year. These values feed scheduling calculations.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3 py-4">
+            <div>
+              <Label className="text-xs">cFTE/week</Label>
+              <Input
+                type="number"
+                step="0.001"
+                value={editCftePerWeek}
+                onChange={(e) => setEditCftePerWeek(e.target.value)}
+                disabled={isUpdatingRotation}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs">Min Staff</Label>
+                <Input
+                  type="number"
+                  value={editMinStaff}
+                  onChange={(e) => setEditMinStaff(e.target.value)}
+                  disabled={isUpdatingRotation}
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Max Consecutive Wks</Label>
+                <Input
+                  type="number"
+                  value={editMaxConsecutiveWeeks}
+                  onChange={(e) => setEditMaxConsecutiveWeeks(e.target.value)}
+                  disabled={isUpdatingRotation}
+                />
+              </div>
+            </div>
+            {editError && <p className="text-xs text-destructive">{editError}</p>}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleUpdateRotation} disabled={isUpdatingRotation}>
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

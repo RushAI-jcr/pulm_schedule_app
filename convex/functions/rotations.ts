@@ -2,6 +2,10 @@ import { mutation, query, QueryCtx, MutationCtx } from "../_generated/server";
 import { v } from "convex/values";
 import { requireAdmin } from "../lib/auth";
 import { getSingleActiveFiscalYear } from "../lib/fiscalYear";
+import {
+  assertRotationBelongsToFiscalYear,
+  validateRotationSettingsInput,
+} from "../lib/rotationSettings";
 
 async function getCurrentFiscalYearForAdmin(ctx: QueryCtx | MutationCtx) {
   const physician = await requireAdmin(ctx);
@@ -124,5 +128,36 @@ export const setRotationActive = mutation({
 
     await ctx.db.patch(rotation._id, { isActive: args.isActive });
     return { message: args.isActive ? "Rotation activated" : "Rotation deactivated" };
+  },
+});
+
+export const updateRotationSettings = mutation({
+  args: {
+    rotationId: v.id("rotations"),
+    cftePerWeek: v.number(),
+    minStaff: v.number(),
+    maxConsecutiveWeeks: v.number(),
+  },
+  returns: v.object({ message: v.string() }),
+  handler: async (ctx, args) => {
+    const { fiscalYear } = await getCurrentFiscalYearForAdmin(ctx);
+    if (!fiscalYear) throw new Error("No active fiscal year available");
+
+    const validated = validateRotationSettingsInput(args);
+
+    const rotation = await ctx.db.get(args.rotationId);
+    if (!rotation) throw new Error("Rotation not found");
+    assertRotationBelongsToFiscalYear({
+      rotationFiscalYearId: String(rotation.fiscalYearId),
+      activeFiscalYearId: String(fiscalYear._id),
+    });
+
+    await ctx.db.patch(rotation._id, {
+      cftePerWeek: validated.cftePerWeek,
+      minStaff: validated.minStaff,
+      maxConsecutiveWeeks: validated.maxConsecutiveWeeks,
+    });
+
+    return { message: "Rotation settings updated" };
   },
 });
