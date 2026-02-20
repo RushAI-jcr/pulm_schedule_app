@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import {
+  MAX_IMPORT_FILE_BYTES,
   parseScheduleImportFile,
   type ParsedUploadPayload,
   type UploadAvailability,
@@ -48,6 +49,7 @@ export function WeekImportPanel({
   onSaveStatusChange?: (status: SaveStatus) => void
 }) {
   const importWeekPreferences = useMutation(api.functions.scheduleRequests.importWeekPreferencesFromUpload)
+  const maxUploadSizeMb = Math.round(MAX_IMPORT_FILE_BYTES / (1024 * 1024))
 
   const targetById = useMemo(
     () => new Map(targets.map((target) => [String(target.id), target])),
@@ -174,7 +176,7 @@ export function WeekImportPanel({
           : "Import Week Preferences"}
       </h3>
       <p className="text-xs text-muted-foreground">
-        Upload `.xlsx` or `.csv` (`week_start`, `preference`) to replace week preferences for the selected physician.
+        Upload `.xlsx` or `.csv` (`week_start`, `preference`) up to {maxUploadSizeMb}MB to replace week preferences for the selected physician.
       </p>
 
       {mode === "admin" && (

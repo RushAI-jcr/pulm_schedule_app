@@ -44,7 +44,7 @@ const ChartContainer = React.forwardRef<
   }
 >(({ id, className, children, config, ...props }, ref) => {
   const uniqueId = React.useId()
-  const chartId = `chart-${id || uniqueId.replace(/:/g, "")}`
+  const chartId = sanitizeCssToken(`chart-${id || uniqueId.replace(/:/g, "")}`)
 
   return (
     <ChartContext.Provider value={{ config }}>
@@ -76,28 +76,47 @@ const ChartStyle = ({ id, config }: { id: string; config: ChartConfig }) => {
     return null
   }
 
+  const safeChartId = sanitizeCssToken(id)
+  const cssText = Object.entries(THEMES)
+    .map(([theme, prefix]) => {
+      const cssVars = colorConfig
+        .map(([key, itemConfig]) => {
+          const color =
+            itemConfig.theme?.[theme as keyof typeof itemConfig.theme] ||
+            itemConfig.color
+          if (!color || !isSafeCssValue(color)) {
+            return null
+          }
+          return `  --color-${sanitizeCssToken(key)}: ${color};`
+        })
+        .filter(Boolean)
+        .join("\n")
+
+      if (!cssVars) {
+        return null
+      }
+
+      return `${prefix} [data-chart=\"${safeChartId}\"] {\n${cssVars}\n}`
+    })
+    .filter(Boolean)
+    .join("\n")
+
+  if (!cssText) {
+    return null
+  }
+
   return (
-    <style
-      dangerouslySetInnerHTML={{
-        __html: Object.entries(THEMES)
-          .map(
-            ([theme, prefix]) => `
-${prefix} [data-chart=${id}] {
-${colorConfig
-  .map(([key, itemConfig]) => {
-    const color =
-      itemConfig.theme?.[theme as keyof typeof itemConfig.theme] ||
-      itemConfig.color
-    return color ? `  --color-${key}: ${color};` : null
-  })
-  .join("\n")}
-}
-`
-          )
-          .join("\n"),
-      }}
-    />
+    <style>{cssText}</style>
   )
+}
+
+function sanitizeCssToken(value: string): string {
+  const normalized = value.trim().replace(/[^a-zA-Z0-9_-]/g, "-")
+  return normalized.length > 0 ? normalized : "series"
+}
+
+function isSafeCssValue(value: string): boolean {
+  return /^[a-zA-Z0-9(),.%#\s\-_/]+$/.test(value)
 }
 
 const ChartTooltip = RechartsPrimitive.Tooltip

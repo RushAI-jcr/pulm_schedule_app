@@ -1,5 +1,3 @@
-import * as XLSX from "xlsx";
-
 export type MasterCalendarExportPhysician = {
   id: string;
   fullName: string;
@@ -75,14 +73,6 @@ function sortAssignments(
   });
 }
 
-function sortWeeks(rows: MasterCalendarExportWeek[]): MasterCalendarExportWeek[] {
-  return [...rows].sort((a, b) => a.weekNumber - b.weekNumber);
-}
-
-function sortPhysicians(rows: MasterCalendarExportPhysician[]): MasterCalendarExportPhysician[] {
-  return [...rows].sort((a, b) => a.fullName.localeCompare(b.fullName));
-}
-
 function sortCalendarEvents(rows: MasterCalendarExportEvent[]): MasterCalendarExportEvent[] {
   return [...rows].sort((a, b) => {
     const byDate = a.date.localeCompare(b.date);
@@ -115,95 +105,6 @@ export function buildMasterCalendarAssignmentCsv(data: MasterCalendarExportData)
   }
 
   return `${lines.join("\n")}\n`;
-}
-
-export function buildMasterCalendarExportWorkbook(data: MasterCalendarExportData): XLSX.WorkBook {
-  const workbook = XLSX.utils.book_new();
-
-  const weeks = sortWeeks(data.weeks);
-  const physicians = sortPhysicians(data.physicians);
-  const assignments = sortAssignments(data.assignments);
-  const assignmentByPhysicianWeek = new Map<string, string[]>();
-  for (const assignment of assignments) {
-    const key = `${assignment.physicianId}:${assignment.weekId}`;
-    const existing = assignmentByPhysicianWeek.get(key) ?? [];
-    existing.push(assignment.rotationAbbreviation || assignment.rotationName);
-    assignmentByPhysicianWeek.set(key, existing);
-  }
-
-  const scheduleHeader = [
-    "Physician",
-    "Initials",
-    ...weeks.map((week) => `W${week.weekNumber} (${week.startDate} to ${week.endDate})`),
-  ];
-  const scheduleRows: (string | number)[][] = [scheduleHeader];
-  for (const physician of physicians) {
-    const row: (string | number)[] = [physician.fullName, physician.initials];
-    for (const week of weeks) {
-      const value = assignmentByPhysicianWeek
-        .get(`${physician.id}:${week.id}`)
-        ?.join("; ") ?? "";
-      row.push(value);
-    }
-    scheduleRows.push(row);
-  }
-
-  const scheduleSheet = XLSX.utils.aoa_to_sheet(scheduleRows);
-  XLSX.utils.book_append_sheet(workbook, scheduleSheet, "Schedule Grid");
-
-  const assignmentRows: (string | number)[][] = [
-    [
-      "Physician",
-      "Initials",
-      "Week",
-      "Week Start",
-      "Week End",
-      "Rotation",
-      "Rotation Abbreviation",
-    ],
-  ];
-  for (const assignment of assignments) {
-    assignmentRows.push([
-      assignment.physicianName,
-      assignment.physicianInitials,
-      assignment.weekNumber,
-      assignment.weekStartDate,
-      assignment.weekEndDate,
-      assignment.rotationName,
-      assignment.rotationAbbreviation,
-    ]);
-  }
-
-  const assignmentSheet = XLSX.utils.aoa_to_sheet(assignmentRows);
-  XLSX.utils.book_append_sheet(workbook, assignmentSheet, "Assignment List");
-
-  const eventRows: (string | number | boolean)[][] = [
-    ["Date", "Event", "Category", "Source", "Week", "Approved", "Visible"],
-  ];
-  for (const event of sortCalendarEvents(data.calendarEvents)) {
-    eventRows.push([
-      event.date,
-      event.name,
-      event.category,
-      event.source ?? "",
-      event.weekNumber ?? "",
-      event.isApproved ?? "",
-      event.isVisible ?? "",
-    ]);
-  }
-
-  const eventsSheet = XLSX.utils.aoa_to_sheet(eventRows);
-  XLSX.utils.book_append_sheet(workbook, eventsSheet, "Calendar Events");
-
-  return workbook;
-}
-
-export function buildMasterCalendarExportXlsxBytes(data: MasterCalendarExportData): ArrayBuffer {
-  const workbook = buildMasterCalendarExportWorkbook(data);
-  return XLSX.write(workbook, {
-    type: "array",
-    bookType: "xlsx",
-  }) as ArrayBuffer;
 }
 
 function pad2(value: number): string {

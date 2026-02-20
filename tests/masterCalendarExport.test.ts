@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
-import * as XLSX from "xlsx";
 import {
   buildMasterCalendarAssignmentCsv,
-  buildMasterCalendarExportWorkbook,
   buildMasterCalendarIcs,
   MasterCalendarExportData,
 } from "../src/shared/services/masterCalendarExport";
@@ -107,59 +105,6 @@ describe("master calendar export helpers", () => {
       "Alice Adams,Week 1,Pulm",
       "Bob Brown,Week 2,MICU 1",
     ]);
-  });
-
-  it("builds workbook with schedule grid, assignment list, and calendar events", () => {
-    const workbook = buildMasterCalendarExportWorkbook(fixture);
-
-    expect(workbook.SheetNames).toEqual([
-      "Schedule Grid",
-      "Assignment List",
-      "Calendar Events",
-    ]);
-
-    const scheduleRows = XLSX.utils.sheet_to_json<(string | number)[]>(
-      workbook.Sheets["Schedule Grid"],
-      { header: 1, raw: true },
-    );
-    expect(scheduleRows[0]).toEqual([
-      "Physician",
-      "Initials",
-      "W1 (2026-06-29 to 2026-07-05)",
-      "W2 (2026-07-06 to 2026-07-12)",
-    ]);
-    expect(scheduleRows[1]).toEqual(["Alice Adams", "AA", "MICU1; Pulm", ""]);
-    expect(scheduleRows[2]).toEqual(["Bob Brown", "BB", "", "MICU1"]);
-
-    const assignmentRows = XLSX.utils.sheet_to_json<(string | number)[]>(
-      workbook.Sheets["Assignment List"],
-      { header: 1, raw: true },
-    );
-    expect(assignmentRows[0]).toEqual([
-      "Physician",
-      "Initials",
-      "Week",
-      "Week Start",
-      "Week End",
-      "Rotation",
-      "Rotation Abbreviation",
-    ]);
-    expect(assignmentRows).toHaveLength(4);
-
-    const eventRows = XLSX.utils.sheet_to_json<(string | number)[]>(
-      workbook.Sheets["Calendar Events"],
-      { header: 1, raw: true },
-    );
-    expect(eventRows[0]).toEqual([
-      "Date",
-      "Event",
-      "Category",
-      "Source",
-      "Week",
-      "Approved",
-      "Visible",
-    ]);
-    expect(eventRows).toHaveLength(4);
   });
 
   it("builds ICS with week-long assignment events plus holiday/conference events", () => {
